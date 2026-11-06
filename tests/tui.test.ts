@@ -47,16 +47,25 @@ describe('view rotation', () => {
     const t0 = 1_000_000
     expect(rotation(t0, t0, 120)).toEqual({ view: 'grid', next: 'swim', remainingSec: 120 })
     expect(rotation(t0, t0 + 121_000, 120)).toMatchObject({ view: 'swim', next: 'tree' })
-    expect(rotation(t0, t0 + 241_000, 120)).toMatchObject({ view: 'tree', next: 'grid', remainingSec: 119 })
-    expect(rotation(t0, t0 + 361_000, 120).view).toBe('grid')
+    expect(rotation(t0, t0 + 241_000, 120)).toMatchObject({ view: 'tree', next: 'agents', remainingSec: 119 })
+    expect(rotation(t0, t0 + 361_000, 120)).toMatchObject({ view: 'agents', next: 'grid' })
+    expect(rotation(t0, t0 + 481_000, 120).view).toBe('grid')
   })
   it('skips views with nothing to show, and shows one view when rotation is off', () => {
     expect(rotation(0, 130_000, 120, ['grid', 'tree']).view).toBe('tree')
-    expect(availableViews(snap())).toEqual(['grid', 'swim'])
+    expect(availableViews(snap())).toEqual(['grid', 'swim', 'agents'])
     expect(rotation(0, 999_000, 0).view).toBe('grid')
   })
+  it('shows each running agent with its skill, step, recode and what it is doing', () => {
+    const text = render(snap(), 140, { color: false }, now.getTime(), 'agents').join('\n')
+    expect(text).toContain('Agents and skills · 1 running')
+    expect(text).toMatch(/feature-build\s+1 · developer L1/)
+    expect(text).toMatch(/L1\s+■ developer\s+opus\s+feature-build\s+#42\s+check \(recode 2\)/)
+    expect(text).toContain('Running npm test')
+    expect(text).toContain('Idle: lead L1')
+  })
   it('keeps decisions on top in every view', () => {
-    for (const v of ['grid', 'swim', 'tree'] as const) {
+    for (const v of ['grid', 'swim', 'tree', 'agents'] as const) {
       expect(render(snap(), 100, { color: false }, now.getTime(), v).join('\n')).toContain('Needs your decision (1)')
     }
   })

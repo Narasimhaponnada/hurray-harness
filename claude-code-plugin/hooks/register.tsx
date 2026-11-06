@@ -8,7 +8,7 @@ import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, VIEW_NAME, availableViews, mmss, r
 //   - a status line: stage, busy lanes, what needs you, milestone progress
 //   - a band above the prompt whenever something needs you
 //   - a lanes pane beside the chat (/lanes): decisions on top, then the grid, swimlanes and worktree
-//     graph taking turns every HH_ROTATE seconds (default 120), with buttons to pin one
+//     graph and the agents and skills view taking turns every HH_ROTATE seconds (default 120), with buttons to pin one
 // Read-only: it only fetches the hub's /api/state.
 
 const PANE = 'hh-lanes'
@@ -258,6 +258,48 @@ export const register: Register = (on) => {
       )
     }
 
+    // Agents and skills: the skills in use and who runs them, then one row per running agent.
+    const agentsView = () => {
+      const bySkill = new Map<string, string[]>()
+      for (const a of s.agents) {
+        const k = a.skill ?? '(no skill reported)'
+        bySkill.set(k, [...(bySkill.get(k) ?? []), `${ROLE_NAME[a.role] ?? a.role}${a.lane ? ' ' + a.lane : ''}`])
+      }
+      const age = (ms: number) => { const sec = Math.max(0, Math.round((nowMs - ms) / 1000)); return mmss(sec) }
+      const k = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
+      const wide = cols >= 110
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text weight="medium">Agents and skills · {s.agents.length} running · {s.idle.reduce((a, r) => a + Math.max(1, r.lanes.length), 0)} idle</Text>
+          {[...bySkill].map(([skill, who]) => (
+            <Box key={skill} flexDirection="row">
+              <Text mono color="#AFA9EC">{fit(skill, 18, false)} </Text>
+              <Text mono>{who.length} · {who.join(', ')}</Text>
+            </Box>
+          ))}
+          <Box flexDirection="row" marginTop={1}>
+            <Text mono dimColor>{fit('Lane', 5, false)} {fit('Agent', 14, false)} {wide ? fit('Model', 7, false) + ' ' : ''}{fit('Skill', 15, false)} {fit('Ticket', 7, false)} {fit('Step', 16, false)} {fit('For', 6, false)} {wide ? fit('Budget', 15, false) + ' ' : ''}Doing now</Text>
+          </Box>
+          {s.agents.map((a, i) => {
+            const pct = a.used && a.budget ? Math.round((a.used / a.budget) * 100) : undefined
+            const n = pct == null ? 0 : Math.round(Math.min(pct, 100) / 20)
+            return (
+              <Box key={String(i)} flexDirection="row">
+                <Text mono weight="medium">{fit(a.lane ?? '', 5, false)} </Text>
+                <Text mono color={ROLE_BG[a.role] ?? '#888780'}>■ </Text>
+                <Text mono>{fit(ROLE_NAME[a.role] ?? a.role, 12, false)} {wide ? fit(a.model ?? '', 7, false) + ' ' : ''}</Text>
+                <Text mono color="#AFA9EC">{fit(a.skill ?? '', 15, false)} </Text>
+                <Text mono>{fit(a.ticket ? '#' + a.ticket : '', 7, false)} {fit((a.step ?? '') + (a.attempt > 1 ? ` (recode ${a.attempt})` : ''), 16, false)} {fit(age(a.since), 6, false)} </Text>
+                {wide ? (pct == null ? <Text mono dimColor>{fit('–', 15, false)} </Text> : <Text mono color={pct >= 80 ? 'warning' : '#85B7EB'}>{'█'.repeat(n) + '░'.repeat(5 - n)} {fit(`${k(a.used!)}/${k(a.budget!)}`, 9, false)} </Text>) : null}
+                <Text dimColor>{a.doing ?? ''}</Text>
+              </Box>
+            )
+          })}
+          {s.idle.length ? <Box marginTop={1}><Text dimColor>Idle: {s.idle.map((r) => `${ROLE_NAME[r.role] ?? r.role}${r.lanes.length ? ' ' + r.lanes.join(',') : ''}`).join(' · ')}</Text></Box> : null}
+        </Box>
+      )
+    }
+
     const pick = (v: PaneView | null) => update($, view, (prev) => ({ pinned: v, start: v ? prev?.start ?? nowMs : nowMs }))
     return (
       <Box flexDirection="column">
@@ -283,6 +325,7 @@ export const register: Register = (on) => {
         {shown === 'grid' && s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
         {shown === 'swim' ? swim() : null}
         {shown === 'tree' ? tree() : null}
+        {shown === 'agents' ? agentsView() : null}
 
         <Box flexDirection="row" gap={1} marginTop={1}>
           {chip('l1', 'done', 'Done', 6)}{chip('l2', 'running', 'Working now', 13)}{chip('l3', 'failed', 'Failed, recode', 16)}
@@ -294,6 +337,7 @@ export const register: Register = (on) => {
           <Button key="v-grid" label="Grid" onPress={() => pick('grid')} />
           {avail.includes('swim') ? <Button key="v-swim" label="Swimlanes" onPress={() => pick('swim')} /> : null}
           {avail.includes('tree') ? <Button key="v-tree" label="Worktrees" onPress={() => pick('tree')} /> : null}
+          {avail.includes('agents') ? <Button key="v-agents" label="Agents" onPress={() => pick('agents')} /> : null}
           {vs?.pinned ? <Button key="v-rotate" label="Rotate" onPress={() => pick(null)} /> : null}
         </Box>
       </Box>
@@ -302,5 +346,5 @@ export const register: Register = (on) => {
 }
 
 function offline(url: string, error: string, at: number): Summary {
-  return { ok: false, error, at, url, done: 0, total: 0, busy: 0, decisions: [], phases: [], build: [], test: [], worktrees: [], segments: [] }
+  return { ok: false, error, at, url, done: 0, total: 0, busy: 0, decisions: [], phases: [], build: [], test: [], worktrees: [], segments: [], agents: [], idle: [] }
 }

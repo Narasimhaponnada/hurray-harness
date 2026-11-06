@@ -40,10 +40,10 @@ Usage
   hh step --ticket N --step NAME [--lane L1] [--agent developer] [--skill S] [--run ID] -- <command> [args]
       Run a command as one lane step: reports it started, then done or failed from its exit code.
       The command's output and exit code pass through unchanged. Works with any harness or script.
-  hh watch [--rotate 120] [--view all|grid|swim|tree] [--port ${DEFAULT_PORT}] [--once] [--no-color]
+  hh watch [--rotate 120] [--view all|grid|swim|tree|agents] [--port ${DEFAULT_PORT}] [--once] [--no-color]
       The dashboard in your terminal, live. Decisions stay on top; below them the grid, swimlanes and
-      worktree graph take turns every --rotate seconds (HH_ROTATE, or rotateSeconds in hh.config.json;
-      0 turns it off). Keys: g s w pin a view · a everything · r resume rotation · ↑↓ scroll · q quit.
+      worktree graph and agents take turns every --rotate seconds (HH_ROTATE, or rotateSeconds in hh.config.json;
+      0 turns it off). Keys: g s w a pin a view · e everything · r resume rotation · ↑↓ scroll · q quit.
   hh status [--port ${DEFAULT_PORT}]
       Print one line for a status bar: stage, busy lanes, what needs you, milestone progress.
       For Claude Code's statusLine setting, or tmux and shell prompts.
@@ -113,7 +113,7 @@ async function main(argv: string[]): Promise<number> {
     const cfg = loadConfig(argv.slice(1))
     const asked = arg(argv, 'view') as View | undefined
     // A view named on the command line is pinned; otherwise the views take turns every rotateSeconds.
-    let pinned: View | null = asked && ['all', 'grid', 'swim', 'tree'].includes(asked) ? asked : cfg.rotateSeconds > 0 ? null : 'all'
+    let pinned: View | null = asked && ['all', 'grid', 'swim', 'tree', 'agents'].includes(asked) ? asked : cfg.rotateSeconds > 0 ? null : 'all'
     let rotateStart = Date.now()
     let scroll = 0
     let lastLines = 0
@@ -144,7 +144,7 @@ async function main(argv: string[]): Promise<number> {
       const rows = (process.stdout.rows || 40) - 1
       lastLines = lines.length
       scroll = Math.max(0, Math.min(scroll, lines.length - rows))
-      const keys = (style.color ? '\x1b[2m' : '') + `${footer}   g grid · s swimlanes · w worktrees · a all · r rotate${lines.length > rows ? ' · ↑↓ scroll' : ''} · q quit` + (style.color ? '\x1b[0m' : '')
+      const keys = (style.color ? '\x1b[2m' : '') + `${footer}   g grid · s swimlanes · w worktrees · a agents · e everything · r rotate${lines.length > rows ? ' · ↑↓ scroll' : ''} · q quit` + (style.color ? '\x1b[0m' : '')
       process.stdout.write('\x1b[H' + lines.slice(scroll, scroll + rows).map((l) => l + '\x1b[K').join('\n') + '\x1b[J\x1b[' + (rows + 1) + ';1H' + keys + '\x1b[K')
       return ok
     }
@@ -160,7 +160,7 @@ async function main(argv: string[]): Promise<number> {
       process.stdin.on('data', (d) => {
         const k = d.toString()
         if (k === 'q' || k === '\x03') quit()
-        const pick: Record<string, View> = { a: 'all', g: 'grid', s: 'swim', w: 'tree' }
+        const pick: Record<string, View> = { e: 'all', g: 'grid', s: 'swim', w: 'tree', a: 'agents' }
         if (pick[k]) { pinned = pick[k]!; scroll = 0; void draw() }
         if (k === 'r' && cfg.rotateSeconds > 0) { pinned = null; rotateStart = Date.now(); scroll = 0; void draw() }
         if (k === '\x1b[A') { scroll = Math.max(0, scroll - 3); void draw() }

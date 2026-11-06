@@ -24,7 +24,9 @@ export type WorktreeRow = { branch: string; ahead: number; behind: number; pr?: 
 
 export type SegmentRow = { lane: string; role?: string; step: string; status: Cell; start: number; end?: number; ticket?: number }
 
-export type PaneView = 'grid' | 'swim' | 'tree'
+export type AgentRow = { lane?: string; role: string; model?: string; skill?: string; ticket?: number; step?: string; attempt: number; since: number; doing?: string; used?: number; budget?: number }
+
+export type PaneView = 'grid' | 'swim' | 'tree' | 'agents'
 export type ViewState = { pinned: PaneView | null; start: number }
 
 export type DecisionRow = { id: string; title: string; why?: string; url?: string }
@@ -48,6 +50,8 @@ export type Summary = {
   base?: string
   baseHead?: string
   segments: SegmentRow[]
+  agents: AgentRow[] // running now
+  idle: { role: string; lanes: string[] }[]
 }
 
 declare module 'claude-code' {

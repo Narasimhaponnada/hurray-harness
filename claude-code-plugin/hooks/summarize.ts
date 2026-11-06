@@ -1,4 +1,4 @@
-import type { Cell, LaneRow, PaneView, Summary } from '../types'
+import type { AgentRow, Cell, LaneRow, PaneView, Summary } from '../types'
 
 // Turns the hub's /api/state snapshot into the small summary the plugin draws. Pure, so it is tested alone.
 
@@ -49,6 +49,23 @@ function lane(r: Json, steps: string[]): LaneRow {
   }
 }
 
+function agentsOf(live: Json): { agents: AgentRow[]; idle: { role: string; lanes: string[] }[] } {
+  const laneOf = (key: string) => { const l = String(key).split(':').at(-2); return l && l !== '-' ? l : undefined }
+  const agents: AgentRow[] = []
+  const idle = new Map<string, string[]>()
+  for (const a of (live.agents ?? []) as Json[]) {
+    const lane = laneOf(a.key)
+    if (a.status !== 'busy') { idle.set(a.role, [...(idle.get(a.role) ?? []), ...(lane ? [lane] : [])]); continue }
+    const row = (live.rows ?? []).find((r: Json) => r.ticket === a.ticket && (!lane || r.lane === lane))
+    const st: Json | undefined = a.step ? row?.steps?.[a.step] : undefined
+    agents.push({
+      lane, role: String(a.role), model: a.model, skill: a.skill, ticket: a.ticket, step: a.step ? STEP_LABEL[a.step] ?? a.step : undefined,
+      attempt: Number(st?.attempt ?? 1), since: Date.parse(a.since), doing: st?.detail, used: st?.tokens?.used, budget: st?.tokens?.budget,
+    })
+  }
+  return { agents, idle: [...idle].map(([role, lanes]) => ({ role, lanes })) }
+}
+
 export function summarize(state: Json, url: string, now: number): Summary {
   const live: Json = state.live ?? {}
   const tracker: Json | undefined = state.trackers?.[0]
@@ -88,6 +105,7 @@ export function summarize(state: Json, url: string, now: number): Summary {
       .filter((g: Json) => Date.parse(g.end ?? new Date(now).toISOString()) >= now - 240 * 60_000)
       .slice(-300)
       .map((g: Json) => ({ lane: String(g.lane), role: g.role, step: String(g.step), status: cell(g.status), start: Date.parse(g.start), end: g.end ? Date.parse(g.end) : undefined, ticket: g.ticket })),
+    ...agentsOf(live),
     repo: tracker?.repo ?? run?.repo,
     milestone: tracker?.milestone?.title ?? run?.milestone,
     stage: run?.status === 'running' ? run?.stage : undefined,
@@ -116,13 +134,14 @@ export const GLYPH: Record<Cell, string> = { done: '✓', running: '●', failed
 
 // ---------- rotation: the pane's views take turns in the same space ----------
 
-export const VIEWS: readonly PaneView[] = ['grid', 'swim', 'tree']
-export const VIEW_NAME: Record<PaneView, string> = { grid: 'grid', swim: 'swimlanes', tree: 'worktrees' }
+export const VIEWS: readonly PaneView[] = ['grid', 'swim', 'tree', 'agents']
+export const VIEW_NAME: Record<PaneView, string> = { grid: 'grid', swim: 'swimlanes', tree: 'worktrees', agents: 'agents' }
 
 export function availableViews(s: Summary): PaneView[] {
   const out: PaneView[] = ['grid']
   if (s.segments.length) out.push('swim')
   if (s.worktrees.length) out.push('tree')
+  if (s.agents.length || s.idle.length) out.push('agents')
   return out
 }
 

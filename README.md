@@ -59,9 +59,13 @@ hh watch --rotate 90   # your own interval in seconds (or HH_ROTATE, or rotateSe
 hh watch --once        # print everything once, for scripts and CI logs
 ```
 
-To keep it small, the decisions stay on top while the **grid**, the **swimlanes** and the **worktree graph** take turns in the same space below. The footer says what is showing and what comes next (`grid · swimlanes in 1:24`). Keys: `g` `s` `w` pin a view, `a` shows everything, `r` resumes rotating, `↑↓` scroll, `q` quits. Data refreshes every 2 seconds in every view. It works in any terminal (Cursor, VS Code, iTerm, tmux) and fits its width.
+To keep it small, the decisions stay on top while the **grid**, the **swimlanes**, the **worktree graph** and **agents and skills** take turns in the same space below. The footer says what is showing and what comes next (`grid · swimlanes in 1:24`). Keys: `g` `s` `w` `a` pin a view (grid, swimlanes, worktrees, agents), `e` shows everything, `r` resumes rotating, `↑↓` scroll, `q` quits. Data refreshes every 2 seconds in every view. It works in any terminal (Cursor, VS Code, iTerm, tmux) and fits its width.
 
 ![Terminal views taking turns](docs/terminal-rotation.png)
+
+**Agents and skills** lists each skill in use with the agents running it. Under that, each running agent gets a row: lane, role, model, skill, ticket, step (with recode count), time on the step, budget used, and what it is doing now. Idle agents fit on one line. On a narrow terminal the budget, model, time and skill columns drop in that order.
+
+![Agents and skills view](docs/terminal-agents.png)
 
 ## Inside Claude Code: always on screen
 
@@ -75,7 +79,7 @@ Answer `y` to add the marketplace and pick a scope (user, for every session). Wi
 
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **A band above the prompt** whenever something needs you, with a toast when a new decision appears. **Hide** dismisses the band until the next new decision.
-- **A lanes pane beside the chat** (`/lanes`). What needs you stays on top. Below it, the colored grid (phases, and each ticket's steps with the agent in each cell and what it is doing now), the swimlanes and the worktree graph take turns every `HH_ROTATE` seconds (default 120). Buttons pin a view or resume rotating.
+- **A lanes pane beside the chat** (`/lanes`). What needs you stays on top. Below it, the colored grid (phases, and each ticket's steps with the agent in each cell and what it is doing now), the swimlanes, the worktree graph and agents and skills take turns every `HH_ROTATE` seconds (default 120). Buttons pin a view or resume rotating.
 
 ![Claude Code lanes pane](docs/claude-code-pane.png)
 

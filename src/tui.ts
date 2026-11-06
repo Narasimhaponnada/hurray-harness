@@ -68,7 +68,7 @@ function gated(phases: PhaseState[], decisions: Decision[]): Set<string> {
   return out
 }
 
-export type View = 'all' | 'grid' | 'swim' | 'tree'
+export type View = 'all' | 'grid' | 'swim' | 'tree' | 'agents'
 
 export function render(snap: Snapshot, width: number, s: Style = { color: true }, now = Date.now(), view: View = 'all'): string[] {
   const W = Math.max(60, width)
@@ -101,6 +101,7 @@ export function render(snap: Snapshot, width: number, s: Style = { color: true }
   if (view === 'all' || view === 'grid') out.push(...gridSection(snap, W, s, now))
   if (view === 'all' || view === 'swim') out.push(...swimlanes(snap, W, s, now))
   if (view === 'all' || view === 'tree') out.push(...worktreeGraph(snap, W, s))
+  if (view === 'all' || view === 'agents') out.push(...agentsView(snap, W, s, now))
 
   // Legend
   const key = (t: Tone, label: string) => paint(s, t, '  ') + ' ' + label
@@ -283,8 +284,8 @@ export function worktreeGraph(snap: Snapshot, W: number, s: Style): string[] {
 
 // ---------- rotation: the views take turns in the same space ----------
 
-export const ROTATION: readonly View[] = ['grid', 'swim', 'tree']
-export const VIEW_NAME: Record<View, string> = { all: 'everything', grid: 'grid', swim: 'swimlanes', tree: 'worktrees' }
+export const ROTATION: readonly View[] = ['grid', 'swim', 'tree', 'agents']
+export const VIEW_NAME: Record<View, string> = { all: 'everything', grid: 'grid', swim: 'swimlanes', tree: 'worktrees', agents: 'agents' }
 
 // Which view shows at `now`, given when rotation started and its period. Views with nothing to show are
 // skipped (no steps yet: no swimlanes; no worktrees: no graph), so the space never shows an empty view.
@@ -303,7 +304,87 @@ export function availableViews(snap: Snapshot): View[] {
   const out: View[] = ['grid']
   if (snap.live.segments.length) out.push('swim')
   if (snap.git.some((g) => g.worktrees.some((w) => w.ticket != null))) out.push('tree')
+  if (snap.live.agents.length) out.push('agents')
   return out
 }
 
 export const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`
+
+// ---------- agents and skills: who is running, which skill, on what, for how long, against what budget ----------
+
+const since = (iso: string, now: number) => {
+  const sec = Math.max(0, Math.round((now - Date.parse(iso)) / 1000))
+  return sec < 3600 ? mmss(sec) : `${Math.floor(sec / 3600)}h${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`
+}
+const STEP_WORD: Record<string, string> = { plan: 'plan', code: 'code', tests: 'tests, docs', check: 'check', pr: 'PR', review: 'review', merge: 'merge', close: 'close', 'qa-plan': 'QA plan', 'cycle-open': 'open cycle', run: 'run tests', 'second-look': '2nd look', 'file-bugs': 'file bugs', verify: 'verify', 'cycle-close': 'close cycle', 'sign-off': 'sign-off' }
+const kTok = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
+
+export function agentsView(snap: Snapshot, W: number, s: Style, now: number): string[] {
+  const out: string[] = []
+  const agents = snap.live.agents
+  if (!agents.length) return out
+  const busy = agents.filter((a) => a.status === 'busy')
+  const idle = agents.filter((a) => a.status !== 'busy')
+  const laneOf = (key: string) => { const l = key.split(':').at(-2); return l && l !== '-' ? l : '' }
+  // What the agent is doing and its budget come from the step it is running.
+  const stepOf = (a: (typeof agents)[number]) => {
+    const row = snap.live.rows.find((r) => r.ticket === a.ticket && (!laneOf(a.key) || r.lane === laneOf(a.key)))
+    return a.step ? row?.steps[a.step] : undefined
+  }
+  out.push(bold(s, `Agents and skills · ${busy.length} running · ${idle.length} idle`))
+
+  // Skills in use, each with the agents running it.
+  const bySkill = new Map<string, string[]>()
+  for (const a of busy) {
+    const k = a.skill ?? '(no skill reported)'
+    bySkill.set(k, [...(bySkill.get(k) ?? []), `${role(a.role)}${laneOf(a.key) ? ' ' + laneOf(a.key) : ''}`])
+  }
+  if (bySkill.size) {
+    const sw = Math.min(24, Math.max(10, ...[...bySkill.keys()].map((k) => k.length)))
+    out.push(dim(s, fit('Skill', sw, 'left') + '  Running it'))
+    for (const [k, who] of bySkill) out.push(fg(s, 183, fit(k, sw, 'left')) + '  ' + fit(`${who.length} · ${who.join(', ')}`, W - sw - 2, 'left').trimEnd())
+    out.push('')
+  }
+
+  // One row per running agent. On a narrow terminal the least needed columns go first.
+  if (busy.length) {
+    type Col = { id: string; h: string; w: number; cell: (a: (typeof agents)[number]) => string }
+    let cols: Col[] = [
+      { id: 'lane', h: 'Lane', w: 5, cell: (a) => bold(s, fit(laneOf(a.key), 5, 'left')) },
+      { id: 'agent', h: 'Agent', w: 14, cell: (a) => esc(s, `38;5;${roleBg(a.role)}`) + '■ ' + reset(s) + fit(role(a.role), 12, 'left') },
+      { id: 'model', h: 'Model', w: 7, cell: (a) => fit(a.model ?? '', 7, 'left') },
+      { id: 'skill', h: 'Skill', w: 15, cell: (a) => fg(s, 183, fit(a.skill ?? '', 15, 'left')) },
+      { id: 'ticket', h: 'Ticket', w: 7, cell: (a) => fit(a.ticket ? '#' + a.ticket : '', 7, 'left') },
+      { id: 'step', h: 'Step', w: 16, cell: (a) => { const st = stepOf(a); return fit((STEP_WORD[a.step ?? ''] ?? a.step ?? '') + (st && st.attempt > 1 ? ` (recode ${st.attempt})` : ''), 16, 'left') } },
+      { id: 'for', h: 'For', w: 6, cell: (a) => fit(since(a.since, now), 6, 'left') },
+      { id: 'budget', h: 'Budget', w: 15, cell: (a) => {
+        const t = stepOf(a)?.tokens
+        const pct = t?.used && t?.budget ? Math.round((t.used / t.budget) * 100) : undefined
+        if (pct == null) return dim(s, fit('–', 15, 'left'))
+        const n = Math.round(Math.min(pct, 100) / 20)
+        return fg(s, pct >= 80 ? 214 : 75, '█'.repeat(n) + '░'.repeat(5 - n)) + ' ' + fit(`${kTok(t!.used!)}/${kTok(t!.budget!)}`, 9, 'left')
+      } },
+    ]
+    for (const drop of ['budget', 'model', 'for', 'skill']) {
+      if (cols.reduce((a, c) => a + c.w + 1, 0) + 12 <= W) break
+      cols = cols.filter((c) => c.id !== drop)
+    }
+    const doingW = Math.max(0, W - cols.reduce((a, c) => a + c.w + 1, 0))
+    out.push(dim(s, cols.map((c) => fit(c.h, c.w, 'left')).join(' ') + (doingW > 0 ? ' ' + fit('Doing now', doingW, 'left').trimEnd() : '')))
+    for (const a of busy) {
+      const doing = stepOf(a)?.detail ?? ''
+      out.push(cols.map((c) => c.cell(a)).join(' ') + (doingW > 0 ? ' ' + dim(s, fit(doing, doingW, 'left').trimEnd()) : ''))
+    }
+    out.push('')
+  }
+
+  // Idle agents, by role, on one line.
+  if (idle.length) {
+    const byRole = new Map<string, string[]>()
+    for (const a of idle) byRole.set(a.role, [...(byRole.get(a.role) ?? []), laneOf(a.key)])
+    const line = 'Idle: ' + [...byRole].map(([r, ls]) => `${role(r)}${ls.filter(Boolean).length ? ' ' + ls.filter(Boolean).join(',') : ''}`).join(' · ')
+    out.push(dim(s, fit(line, W, 'left').trimEnd()))
+    out.push('')
+  }
+  return out
+}

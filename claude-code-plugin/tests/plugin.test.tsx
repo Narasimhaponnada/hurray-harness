@@ -11,12 +11,16 @@ const STATE = {
       { lane: 'L1', ticket: 42, step: 'plan', status: 'done', role: 'lead', start: '2026-11-06T10:00:00.000Z', end: '2026-11-06T10:00:20.000Z' },
       { lane: 'L1', ticket: 42, step: 'code', status: 'running', role: 'developer', start: '2026-11-06T10:00:21.000Z' },
     ],
+    agents: [
+      { key: 'r1:L1:developer', role: 'developer', model: 'sonnet', status: 'busy', ticket: 42, step: 'code', skill: 'feature-build', since: '2026-11-06T10:00:21.000Z' },
+      { key: 'r1:L1:lead', role: 'lead', status: 'idle', since: '2026-11-06T10:00:20.000Z' },
+    ],
     rows: [
       {
         key: 'r1:42', ticket: 42, lane: 'L1', title: 'Cursor pagination', kind: 'dev', current: 'code', finished: false,
         steps: {
           plan: { step: 'plan', status: 'done', agent: { role: 'lead' }, files: [], attempt: 1 },
-          code: { step: 'code', status: 'running', agent: { role: 'developer', model: 'sonnet' }, skill: 'feature-build', detail: 'Edit src/api/list.ts', files: [], attempt: 2 },
+          code: { step: 'code', status: 'running', agent: { role: 'developer', model: 'sonnet' }, skill: 'feature-build', detail: 'Edit src/api/list.ts', files: [], attempt: 2, tokens: { used: 100000, budget: 120000 } },
         },
       },
     ],
@@ -114,6 +118,13 @@ test('the views take turns, a button pins one, and decisions stay on top', async
   expect(await ui.find({ type: 'Text', text: /feat\/42-x/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /▶ PR #88/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /behind 1: merges develop in first/ })).toBeTruthy()
+  // Pin the agents: the skill in use, who runs it, and each running agent's row.
+  await ui.press({ key: 'v-agents' })
+  expect(await ui.find({ type: 'Text', text: /Agents and skills · 1 running · 1 idle/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /1 · developer L1/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /code \(recode 2\)/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /100k\/120k/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Idle: lead L1/ })).toBeTruthy()
   // Back to rotating.
   await ui.press({ key: 'v-rotate' })
   expect(await ui.find({ type: 'Text', text: /pinned/ })).toBeFalsy()
