@@ -54,13 +54,14 @@ hh step --ticket 42 --lane L1 --step check --agent developer -- npm test
 ## In any terminal
 
 ```bash
-hh watch          # the same view, live and full screen; q quits
-hh watch --once   # print it once, for scripts and CI logs
+hh watch               # live and full screen; views take turns every 2 minutes
+hh watch --rotate 90   # your own interval in seconds (or HH_ROTATE, or rotateSeconds in hh.config.json; 0 = off)
+hh watch --once        # print everything once, for scripts and CI logs
 ```
 
-It works in any terminal (Cursor, VS Code, iTerm, tmux), fits its width, and redraws every 2 seconds.
+To keep it small, the decisions stay on top while the **grid**, the **swimlanes** and the **worktree graph** take turns in the same space below. The footer says what is showing and what comes next (`grid · swimlanes in 1:24`). Keys: `g` `s` `w` pin a view, `a` shows everything, `r` resumes rotating, `↑↓` scroll, `q` quits. Data refreshes every 2 seconds in every view. It works in any terminal (Cursor, VS Code, iTerm, tmux) and fits its width.
 
-![Terminal view](docs/terminal.png)
+![Terminal views taking turns](docs/terminal-rotation.png)
 
 ## Inside Claude Code: always on screen
 
@@ -74,7 +75,7 @@ Answer `y` to add the marketplace and pick a scope (user, for every session). Wi
 
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **A band above the prompt** whenever something needs you, with a toast when a new decision appears. **Hide** dismisses the band until the next new decision.
-- **A lanes pane beside the chat** (`/lanes`). It shows the same colored grid: what needs you, the phase strip with skills, and each ticket's steps with the agent in each cell. The line under each running ticket shows the skill, model and what the agent is doing now, and worktrees are listed with ahead and behind counts, their PR and checks.
+- **A lanes pane beside the chat** (`/lanes`). What needs you stays on top. Below it, the colored grid (phases, and each ticket's steps with the agent in each cell and what it is doing now), the swimlanes and the worktree graph take turns every `HH_ROTATE` seconds (default 120). Buttons pin a view or resume rotating.
 
 ![Claude Code lanes pane](docs/claude-code-pane.png)
 

@@ -1,4 +1,4 @@
-import type { Cell, LaneRow, Summary } from '../types'
+import type { Cell, LaneRow, PaneView, Summary } from '../types'
 
 // Turns the hub's /api/state snapshot into the small summary the plugin draws. Pure, so it is tested alone.
 
@@ -62,7 +62,8 @@ export function summarize(state: Json, url: string, now: number): Summary {
       .filter((w: Json) => w.ticket != null)
       .map((w: Json) => {
         const pr = changes.find((c) => c.head === w.branch && c.state === 'open') ?? changes.find((c) => c.head === w.branch)
-        return { branch: String(w.branch), ahead: Number(w.ahead ?? 0), behind: Number(w.behind ?? 0), pr: pr?.number, checks: pr?.checks, conflict: pr?.mergeable === 'conflicting' }
+        const lane = (live.rows ?? []).find((r: Json) => r.ticket === w.ticket)?.lane
+        return { branch: String(w.branch), ahead: Number(w.ahead ?? 0), behind: Number(w.behind ?? 0), pr: pr?.number, checks: pr?.checks, conflict: pr?.mergeable === 'conflicting', merged: pr?.state === 'merged', dirty: !!w.dirty, lane }
       }),
   )
   const decisions: Json[] = live.decisions ?? []
@@ -81,6 +82,12 @@ export function summarize(state: Json, url: string, now: number): Summary {
   }))
   return {
     ok: true, at: now, url, phases,
+    base: state.git?.[0]?.base,
+    baseHead: state.git?.[0]?.baseHead,
+    segments: (live.segments ?? [])
+      .filter((g: Json) => Date.parse(g.end ?? new Date(now).toISOString()) >= now - 240 * 60_000)
+      .slice(-300)
+      .map((g: Json) => ({ lane: String(g.lane), role: g.role, step: String(g.step), status: cell(g.status), start: Date.parse(g.start), end: g.end ? Date.parse(g.end) : undefined, ticket: g.ticket })),
     repo: tracker?.repo ?? run?.repo,
     milestone: tracker?.milestone?.title ?? run?.milestone,
     stage: run?.status === 'running' ? run?.stage : undefined,
@@ -106,3 +113,25 @@ export function statusLine(s: Summary | null): string {
 }
 
 export const GLYPH: Record<Cell, string> = { done: '✓', running: '●', failed: '✗', blocked: '!', skipped: '–', waiting: '·' }
+
+// ---------- rotation: the pane's views take turns in the same space ----------
+
+export const VIEWS: readonly PaneView[] = ['grid', 'swim', 'tree']
+export const VIEW_NAME: Record<PaneView, string> = { grid: 'grid', swim: 'swimlanes', tree: 'worktrees' }
+
+export function availableViews(s: Summary): PaneView[] {
+  const out: PaneView[] = ['grid']
+  if (s.segments.length) out.push('swim')
+  if (s.worktrees.length) out.push('tree')
+  return out
+}
+
+export function rotation(startMs: number, nowMs: number, periodSec: number, list: readonly PaneView[]): { view: PaneView; next: PaneView; remainingSec: number } {
+  const views = list.length ? list : VIEWS
+  if (periodSec <= 0) return { view: views[0]!, next: views[0]!, remainingSec: 0 }
+  const elapsed = Math.max(0, nowMs - startMs) / 1000
+  const slot = Math.floor(elapsed / periodSec)
+  return { view: views[slot % views.length]!, next: views[(slot + 1) % views.length]!, remainingSec: Math.ceil(periodSec - (elapsed % periodSec)) }
+}
+
+export const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`

@@ -20,7 +20,12 @@ export type LaneRow = {
 
 export type PhaseRow = { name: string; tone: Cell; word: string; skill?: string }
 
-export type WorktreeRow = { branch: string; ahead: number; behind: number; pr?: number; checks?: string; conflict: boolean }
+export type WorktreeRow = { branch: string; ahead: number; behind: number; pr?: number; checks?: string; conflict: boolean; merged?: boolean; dirty?: boolean; lane?: string }
+
+export type SegmentRow = { lane: string; role?: string; step: string; status: Cell; start: number; end?: number; ticket?: number }
+
+export type PaneView = 'grid' | 'swim' | 'tree'
+export type ViewState = { pinned: PaneView | null; start: number }
 
 export type DecisionRow = { id: string; title: string; why?: string; url?: string }
 
@@ -40,10 +45,13 @@ export type Summary = {
   build: LaneRow[]
   test: LaneRow[]
   worktrees: WorktreeRow[]
+  base?: string
+  baseHead?: string
+  segments: SegmentRow[]
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'hurray-harness': { summary: Shaped<Summary | null>; bandHidden: boolean }
+    'hurray-harness': { summary: Shaped<Summary | null>; bandHidden: boolean; view: Shaped<ViewState | null> }
   }
 }

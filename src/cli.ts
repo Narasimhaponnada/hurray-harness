@@ -4,7 +4,7 @@ import { hostname, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { serve } from '@hono/node-server'
 import type { Snapshot } from './shared/types.js'
-import { render } from './tui.js'
+import { VIEW_NAME, availableViews, mmss, render, rotation, type View } from './tui.js'
 import { DEFAULT_PORT, loadConfig } from './hub/config.js'
 import { run } from './hub/exec.js'
 import { gitRemoteRepo, gitSnapshot } from './hub/git.js'
@@ -40,9 +40,10 @@ Usage
   hh step --ticket N --step NAME [--lane L1] [--agent developer] [--skill S] [--run ID] -- <command> [args]
       Run a command as one lane step: reports it started, then done or failed from its exit code.
       The command's output and exit code pass through unchanged. Works with any harness or script.
-  hh watch [--port ${DEFAULT_PORT}] [--once] [--no-color]
-      The dashboard in your terminal, live: phases, the ticket grid with the agent in each cell,
-      decisions and worktrees. Works in any terminal (Cursor, VS Code, iTerm, tmux). q quits.
+  hh watch [--rotate 120] [--view all|grid|swim|tree] [--port ${DEFAULT_PORT}] [--once] [--no-color]
+      The dashboard in your terminal, live. Decisions stay on top; below them the grid, swimlanes and
+      worktree graph take turns every --rotate seconds (HH_ROTATE, or rotateSeconds in hh.config.json;
+      0 turns it off). Keys: g s w pin a view · a everything · r resume rotation · ↑↓ scroll · q quit.
   hh status [--port ${DEFAULT_PORT}]
       Print one line for a status bar: stage, busy lanes, what needs you, milestone progress.
       For Claude Code's statusLine setting, or tmux and shell prompts.
@@ -109,19 +110,42 @@ async function main(argv: string[]): Promise<number> {
     const once = argv.includes('--once') || !process.stdout.isTTY
     const style = { color: !argv.includes('--no-color') && !process.env.NO_COLOR && (process.stdout.isTTY || argv.includes('--color')) }
     const url = `http://127.0.0.1:${port}/api/state`
+    const cfg = loadConfig(argv.slice(1))
+    const asked = arg(argv, 'view') as View | undefined
+    // A view named on the command line is pinned; otherwise the views take turns every rotateSeconds.
+    let pinned: View | null = asked && ['all', 'grid', 'swim', 'tree'].includes(asked) ? asked : cfg.rotateSeconds > 0 ? null : 'all'
+    let rotateStart = Date.now()
+    let scroll = 0
+    let lastLines = 0
     const draw = async (): Promise<boolean> => {
       let lines: string[]
+      let footer = ''
       let ok = true
       try {
         const r = await fetch(url, { signal: AbortSignal.timeout(2000) })
-        lines = render((await r.json()) as Snapshot, process.stdout.columns || 120, style)
+        const snap = (await r.json()) as Snapshot
+        let view: View
+        if (pinned) {
+          view = pinned
+          footer = `${VIEW_NAME[view]} · pinned${cfg.rotateSeconds > 0 ? ' · r resume rotation' : ''}`
+        } else {
+          const rot = rotation(rotateStart, Date.now(), cfg.rotateSeconds, availableViews(snap))
+          view = rot.view
+          footer = rot.next === rot.view ? `${VIEW_NAME[view]}` : `${VIEW_NAME[view]} · ${VIEW_NAME[rot.next]} in ${mmss(rot.remainingSec)}`
+        }
+        lines = render(snap, process.stdout.columns || 120, style, Date.now(), once && !asked ? 'all' : view)
       } catch {
         ok = false
         lines = [`hurray-harness: no hub on port ${port}. Start it with: hh start`, '', 'Retrying every 2 s · q quits']
       }
       if (once) { process.stdout.write(lines.join('\n') + '\n'); return ok }
-      // Redraw in place on the alternate screen, clearing each line's tail.
-      process.stdout.write('\x1b[H' + lines.map((l) => l + '\x1b[K').join('\n') + '\x1b[J')
+      // Redraw in place on the alternate screen, clearing each line's tail. A view taller than the
+      // terminal scrolls with the arrow keys; the last line shows the view, what comes next, and the keys.
+      const rows = (process.stdout.rows || 40) - 1
+      lastLines = lines.length
+      scroll = Math.max(0, Math.min(scroll, lines.length - rows))
+      const keys = (style.color ? '\x1b[2m' : '') + `${footer}   g grid · s swimlanes · w worktrees · a all · r rotate${lines.length > rows ? ' · ↑↓ scroll' : ''} · q quit` + (style.color ? '\x1b[0m' : '')
+      process.stdout.write('\x1b[H' + lines.slice(scroll, scroll + rows).map((l) => l + '\x1b[K').join('\n') + '\x1b[J\x1b[' + (rows + 1) + ';1H' + keys + '\x1b[K')
       return ok
     }
     if (once) return (await draw()) ? 0 : 1
@@ -133,7 +157,15 @@ async function main(argv: string[]): Promise<number> {
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true)
       process.stdin.resume()
-      process.stdin.on('data', (d) => { const k = d.toString(); if (k === 'q' || k === '\x03') quit() })
+      process.stdin.on('data', (d) => {
+        const k = d.toString()
+        if (k === 'q' || k === '\x03') quit()
+        const pick: Record<string, View> = { a: 'all', g: 'grid', s: 'swim', w: 'tree' }
+        if (pick[k]) { pinned = pick[k]!; scroll = 0; void draw() }
+        if (k === 'r' && cfg.rotateSeconds > 0) { pinned = null; rotateStart = Date.now(); scroll = 0; void draw() }
+        if (k === '\x1b[A') { scroll = Math.max(0, scroll - 3); void draw() }
+        if (k === '\x1b[B') { scroll = Math.min(Math.max(0, lastLines - 5), scroll + 3); void draw() }
+      })
     }
     process.stdout.on('resize', () => void draw())
     await draw()

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { reduce } from '../src/shared/reduce.js'
 import type { HHEvent, Snapshot } from '../src/shared/types.js'
-import { render, visible } from '../src/tui.js'
+import { availableViews, render, rotation, visible } from '../src/tui.js'
 
 let n = 0
 const ev = (e: Partial<HHEvent>): HHEvent => ({ v: 1, ts: new Date(Date.UTC(2026, 10, 6, 10, 0, n++)).toISOString(), source: 'h', run: 'r', repo: 'me/app', kind: 'activity', ...e }) as HHEvent
@@ -39,5 +39,25 @@ describe('terminal view', () => {
 
   it('uses no escape codes without color', () => {
     expect(render(snap(), 100, { color: false }, now.getTime()).join('')).not.toMatch(/\x1b/)
+  })
+})
+
+describe('view rotation', () => {
+  it('takes turns every period and says what comes next', () => {
+    const t0 = 1_000_000
+    expect(rotation(t0, t0, 120)).toEqual({ view: 'grid', next: 'swim', remainingSec: 120 })
+    expect(rotation(t0, t0 + 121_000, 120)).toMatchObject({ view: 'swim', next: 'tree' })
+    expect(rotation(t0, t0 + 241_000, 120)).toMatchObject({ view: 'tree', next: 'grid', remainingSec: 119 })
+    expect(rotation(t0, t0 + 361_000, 120).view).toBe('grid')
+  })
+  it('skips views with nothing to show, and shows one view when rotation is off', () => {
+    expect(rotation(0, 130_000, 120, ['grid', 'tree']).view).toBe('tree')
+    expect(availableViews(snap())).toEqual(['grid', 'swim'])
+    expect(rotation(0, 999_000, 0).view).toBe('grid')
+  })
+  it('keeps decisions on top in every view', () => {
+    for (const v of ['grid', 'swim', 'tree'] as const) {
+      expect(render(snap(), 100, { color: false }, now.getTime(), v).join('\n')).toContain('Needs your decision (1)')
+    }
   })
 })

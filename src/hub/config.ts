@@ -36,6 +36,7 @@ export interface Config {
   repos: RepoConfig[]
   labels: LabelRules
   approvalBranches: string[] // a green PR into one of these waits for a person to merge it
+  rotateSeconds: number // terminal and Claude Code views take turns this often; 0 shows one view
   demo: boolean
 }
 
@@ -54,6 +55,7 @@ export function defaultConfig(): Config {
     repos: [],
     labels: { ...DEFAULT_LABELS },
     approvalBranches: [],
+    rotateSeconds: 120,
     demo: false,
   }
 }
@@ -80,6 +82,8 @@ export function loadConfig(argv: string[]): Config {
   if (flag('refresh')) cfg.refreshSeconds = Math.max(15, Number(flag('refresh')))
   if (argv.includes('--fetch')) cfg.gitFetch = true
   if (argv.includes('--demo')) cfg.demo = true
+  const rotate = flag('rotate') ?? process.env.HH_ROTATE
+  if (rotate != null && rotate !== '' && Number.isFinite(Number(rotate))) cfg.rotateSeconds = Math.max(0, Number(rotate))
   const approvals = all('approval')
   if (approvals.length) cfg.approvalBranches = approvals
   const repos = all('repo')

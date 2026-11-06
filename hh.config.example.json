@@ -3,6 +3,7 @@
   "refreshSeconds": 60,
   "gitFetch": false,
   "keepDays": 14,
+  "rotateSeconds": 120,
   "approvalBranches": ["main"],
   "labels": {
     "decision": ["needs-human", "needs-decision", "needs-review", "question"],

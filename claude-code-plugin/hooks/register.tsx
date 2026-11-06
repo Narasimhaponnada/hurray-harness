@@ -1,19 +1,27 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Cell, LaneRow, Summary } from '../types'
-import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, statusLine, summarize } from './summarize.ts'
+import type { Cell, LaneRow, PaneView, Summary, ViewState } from '../types'
+import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, VIEW_NAME, availableViews, mmss, rotation, statusLine, summarize } from './summarize.ts'
 
 // hurray-harness for Claude Code: reads the local hub (hh start) every few seconds and shows
 //   - a status line: stage, busy lanes, what needs you, milestone progress
 //   - a band above the prompt whenever something needs you
-//   - a lanes pane beside the chat (/lanes): every lane's steps, agent, what it is doing, worktrees
+//   - a lanes pane beside the chat (/lanes): decisions on top, then the grid, swimlanes and worktree
+//     graph taking turns every HH_ROTATE seconds (default 120), with buttons to pin one
 // Read-only: it only fetches the hub's /api/state.
 
 const PANE = 'hh-lanes'
 const POLL_MS = 4000
 const summary = atom({ plugin: 'hurray-harness', key: 'summary' } as const, null, { shape: 'summary-1' })
 const bandHidden = atom({ plugin: 'hurray-harness', key: 'bandHidden' } as const, false)
+// Which view the pane shows: pinned by a button, or null to take turns every HH_ROTATE seconds (default 120).
+const view = atom({ plugin: 'hurray-harness', key: 'view' } as const, null, { shape: 'view-1' })
+const ROLE_BG: Record<string, string> = {
+  lead: '#534AB7', architect: '#534AB7', developer: '#0F6E56', designer: '#993556', 'associate-developer': '#854F0B',
+  tester: '#185FA5', 'qa-lead': '#185FA5', 'design-auditor': '#185FA5', 'ui-aligner': '#993556', coordinator: '#5F5E5A', sre: '#993C1D', 'release-lead': '#993C1D',
+}
+const ROLE_NAME: Record<string, string> = { 'associate-developer': 'assoc dev', 'ui-aligner': 'ui aligner', 'design-auditor': 'design aud', 'qa-lead': 'QA lead', 'release-lead': 'rel lead' }
 
 // Cell colors: a dark chip with light text, readable on dark and light themes.
 const TONE: Record<Cell, { bg: string; fg: string }> = {
@@ -65,6 +73,9 @@ export const register: Register = (on) => {
     await $.command.register({ name: 'lanes', description: 'Show agent lanes from hurray-harness beside the chat' })
     timer?.cancel()
     timer = $.clock.every(POLL_MS, () => void refresh($))
+    // Each session starts the rotation at the grid.
+    const now = await $.clock.now()
+    await update($, view, (prev) => ({ pinned: prev?.pinned ?? null, start: now }))
     void refresh($)
     return next(e)
   })
@@ -99,7 +110,7 @@ export const register: Register = (on) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
     const s = await read($, summary)
     if (!s) return <Text dimColor>Connecting to the hub…</Text>
     if (!s.ok) {
@@ -156,6 +167,98 @@ export const register: Register = (on) => {
       )
     }
     const pw = Math.max(9, Math.floor((cols - (s.phases.length - 1)) / Math.max(1, s.phases.length)))
+
+    // Which view to show now: a pinned one, or the turn of the rotation.
+    const period = Number((await $.env.get('HH_ROTATE')) ?? 120)
+    const vs = (await read($, view)) as ViewState | null
+    const nowMs = await $.clock.now()
+    const avail = availableViews(s)
+    const rot = rotation(vs?.start ?? 0, nowMs, Number.isFinite(period) ? period : 120, avail)
+    const shown: PaneView = vs?.pinned ?? rot.view
+    const footer = vs?.pinned ? `${VIEW_NAME[shown]} · pinned` : rot.next === rot.view ? VIEW_NAME[shown] : `${VIEW_NAME[shown]} · ${VIEW_NAME[rot.next]} in ${mmss(rot.remainingSec)}`
+
+    // Swimlanes: one row per lane across time, runs of the same step drawn as one colored bar.
+    const swim = () => {
+      const segs = s.segments
+      const recent = segs.map((g) => g.start)
+      const earliest = recent.length ? Math.min(...recent) : nowMs - 60_000
+      const mins = [1, 2, 5, 15, 60, 240].find((m) => nowMs - earliest <= m * 60_000 * 0.95) ?? 240
+      const t0 = nowMs - mins * 60_000
+      const LW = 16
+      const T = Math.max(20, cols - LW - 2)
+      const x = (t: number) => Math.min(T - 1, Math.max(0, Math.floor(((t - t0) / (nowMs - t0)) * (T - 1))))
+      const lanes = [...new Set(segs.map((g) => g.lane))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text weight="medium">Swimlanes · last {mins >= 60 ? mins / 60 + ' h' : mins + ' min'} · each bar is one step, colored by agent</Text>
+          {lanes.map((lane) => {
+            const mine = segs.filter((g) => g.lane === lane)
+            const who = [...mine].reverse().find((g) => g.role && g.role !== 'coordinator' && g.role !== 'lead')?.role ?? mine.at(-1)?.role
+            const cells: { bg?: string; ch: string }[] = Array.from({ length: T }, () => ({ ch: '·' }))
+            for (const g of mine) {
+              const a = x(Math.max(g.start, t0))
+              const b = Math.max(a, x(g.end ?? nowMs))
+              const bg = g.status === 'failed' ? '#A32D2D' : g.status === 'skipped' ? undefined : ROLE_BG[g.role ?? ''] ?? '#444441'
+              const text = ((STEP_LABEL[g.step] ?? g.step) + (g.ticket ? ' #' + g.ticket : '')).slice(0, b - a + 1)
+              for (let c = a; c <= b; c++) cells[c] = { bg, ch: text[c - a] ?? ' ' }
+            }
+            // Merge neighbouring cells of one colour into one piece of text.
+            const runs: { bg?: string; text: string }[] = []
+            for (const c of cells) {
+              const last = runs.at(-1)
+              if (last && last.bg === c.bg) last.text += c.ch
+              else runs.push({ bg: c.bg, text: c.ch })
+            }
+            return (
+              <Box key={lane} flexDirection="row">
+                <Text mono weight="medium">{fit(lane, 5, false)}</Text>
+                <Text mono dimColor>{fit(ROLE_NAME[who ?? ''] ?? who ?? '', LW - 5, false)} </Text>
+                {runs.map((r, i) => r.bg ? <Text key={String(i)} mono color="#F1EFE8" backgroundColor={r.bg}>{r.text}</Text> : <Text key={String(i)} mono dimColor>{r.text}</Text>)}
+                <Text mono color="error">▏</Text>
+              </Box>
+            )
+          })}
+          <Box flexDirection="row" gap={2} marginTop={1}>
+            {[...new Set(segs.map((g) => g.role).filter((r): r is string => !!r))].map((r) => (
+              <Text key={r} mono><Text backgroundColor={ROLE_BG[r] ?? '#444441'}>{'  '}</Text> {ROLE_NAME[r] ?? r}</Text>
+            ))}
+            <Text mono><Text backgroundColor="#A32D2D">{'  '}</Text> failed</Text>
+          </Box>
+        </Box>
+      )
+    }
+
+    // Worktrees to merge: each lane's branch off the base, its commits, PR, checks and way into the base.
+    const tree = () => {
+      const base = (s.base ?? 'base').replace(/^origin\//, '')
+      const nameW = Math.min(30, Math.max(14, ...s.worktrees.map((w) => w.branch.length)))
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text weight="medium">Worktrees to merge · work reaches the base only through a PR</Text>
+          <Text mono color="#AFA9EC">{'━'.repeat(Math.max(10, cols - (s.base ?? '').length - 12))} {s.base ?? ''}{s.baseHead ? ' ' + s.baseHead : ''}</Text>
+          {s.worktrees.map((w, i) => {
+            const col = w.conflict ? 'error' : w.behind ? 'warning' : 'success'
+            const n = Math.min(w.ahead, 10)
+            const commits = Array.from({ length: n }, () => '●').join('━') + (w.ahead > 10 ? '…' : '')
+            const into = w.merged ? `merged into ${base}` : w.conflict ? `lane merges ${base} in, fixes, re-runs checks` : w.behind && w.pr ? `behind ${w.behind}: merges ${base} in first` : w.pr && w.checks === 'success' ? `merges into ${base} when checks pass` : 'waiting'
+            const checks = !w.pr ? '' : w.conflict ? '✗ conflict' : w.checks === 'success' ? '✓ checks green' : w.checks === 'failure' ? '✗ checks red' : w.checks === 'pending' ? '◌ checks running' : 'no checks'
+            return (
+              <Box key={w.branch} flexDirection="row">
+                <Text mono color="#AFA9EC">{i === s.worktrees.length - 1 ? ' ┗━' : ' ┣━'}</Text>
+                <Text mono color={col}>{fit('━' + commits, 22, false)}</Text>
+                <Text mono color={col}>{fit(w.branch, nameW, false)} </Text>
+                <Text mono dimColor>+{w.ahead} −{w.behind}{w.dirty ? ' ✎' : ''}{w.lane ? ' ' + w.lane : ''}  </Text>
+                <Text mono>▶ {w.pr ? 'PR #' + w.pr : w.ahead ? 'no PR yet' : 'no commits yet'}  </Text>
+                <Text mono color={w.conflict || w.checks === 'failure' ? 'error' : w.checks === 'success' ? 'success' : undefined}>{checks}  </Text>
+                <Text mono dimColor>→ {into}</Text>
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
+    const pick = (v: PaneView | null) => update($, view, (prev) => ({ pinned: v, start: v ? prev?.start ?? nowMs : nowMs }))
     return (
       <Box flexDirection="column">
         <Text weight="medium">{[s.repo, s.milestone ? 'milestone ' + s.milestone : '', s.stage].filter(Boolean).join(' · ')}</Text>
@@ -168,7 +271,7 @@ export const register: Register = (on) => {
           </Box>
         ) : null}
 
-        {s.phases.length ? (
+        {shown === 'grid' && s.phases.length ? (
           <Box flexDirection="column" marginTop={1}>
             <Text weight="medium">Product phases</Text>
             <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('pn' + p.name, p.tone, p.name, pw))}</Box>
@@ -176,25 +279,22 @@ export const register: Register = (on) => {
             <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('ps' + p.name, p.tone, p.skill ?? '', pw))}</Box>
           </Box>
         ) : null}
-
-        {s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : <Text dimColor>No lanes running.</Text>}
-        {s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
-
-        {s.worktrees.length ? (
-          <Box flexDirection="column">
-            <Text weight="medium">Worktrees</Text>
-            {s.worktrees.map((w) => (
-              <Text key={w.branch} mono color={w.conflict ? 'error' : w.behind ? 'warning' : undefined}>
-                {'  '}{w.branch} +{w.ahead} −{w.behind}{w.pr ? ` · PR #${w.pr} ${w.conflict ? 'conflict' : w.checks ?? ''}` : ' · no PR'}
-              </Text>
-            ))}
-          </Box>
-        ) : null}
+        {shown === 'grid' ? (s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : <Text dimColor>No lanes running.</Text>) : null}
+        {shown === 'grid' && s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
+        {shown === 'swim' ? swim() : null}
+        {shown === 'tree' ? tree() : null}
 
         <Box flexDirection="row" gap={1} marginTop={1}>
           {chip('l1', 'done', 'Done', 6)}{chip('l2', 'running', 'Working now', 13)}{chip('l3', 'failed', 'Failed, recode', 16)}
           {chip('l4', 'blocked', 'Needs you', 11)}{chip('l5', 'waiting', 'Not reached', 13)}
           <Text dimColor>full dashboard: {s.url}</Text>
+        </Box>
+        <Box flexDirection="row" gap={1} marginTop={1}>
+          <Text dimColor>{footer}</Text>
+          <Button key="v-grid" label="Grid" onPress={() => pick('grid')} />
+          {avail.includes('swim') ? <Button key="v-swim" label="Swimlanes" onPress={() => pick('swim')} /> : null}
+          {avail.includes('tree') ? <Button key="v-tree" label="Worktrees" onPress={() => pick('tree')} /> : null}
+          {vs?.pinned ? <Button key="v-rotate" label="Rotate" onPress={() => pick(null)} /> : null}
         </Box>
       </Box>
     )
@@ -202,5 +302,5 @@ export const register: Register = (on) => {
 }
 
 function offline(url: string, error: string, at: number): Summary {
-  return { ok: false, error, at, url, done: 0, total: 0, busy: 0, decisions: [], phases: [], build: [], test: [], worktrees: [] }
+  return { ok: false, error, at, url, done: 0, total: 0, busy: 0, decisions: [], phases: [], build: [], test: [], worktrees: [], segments: [] }
 }
