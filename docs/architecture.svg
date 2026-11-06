@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" width="960" height="470" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">hurray-harness architecture</title>
+  <desc id="d">Agent tool hooks, harness events, git worktrees and GitHub feed a local hub, which keeps an event log and live state and streams it to the browser dashboard, the terminal view, the Claude Code plugin and a status line.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#5F5E5A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="470" rx="16" fill="#FAF9F6"/>
+
+  <text x="40" y="44" font-size="15" font-weight="600" fill="#2C2C2A">Inputs</text>
+  <text x="372" y="44" font-size="15" font-weight="600" fill="#2C2C2A">Local hub · 127.0.0.1:7311</text>
+  <text x="712" y="44" font-size="15" font-weight="600" fill="#2C2C2A">Views</text>
+
+  <g font-size="14">
+    <rect x="40" y="64" width="250" height="70" rx="10" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="58" y="93" font-weight="600" fill="#085041">Agent tools</text>
+    <text x="58" y="115" font-size="12.5" fill="#0F6E56">Claude Code and Cursor hooks</text>
+
+    <rect x="40" y="150" width="250" height="70" rx="10" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="58" y="179" font-weight="600" fill="#085041">Your harness</text>
+    <text x="58" y="201" font-size="12.5" fill="#0F6E56">hh step, hh emit, or POST /api/events</text>
+
+    <rect x="40" y="236" width="250" height="70" rx="10" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="58" y="265" font-weight="600" fill="#085041">Git worktrees</text>
+    <text x="58" y="287" font-size="12.5" fill="#0F6E56">read every 10 s · read-only</text>
+
+    <rect x="40" y="322" width="250" height="70" rx="10" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="58" y="351" font-weight="600" fill="#085041">GitHub through gh</text>
+    <text x="58" y="373" font-size="12.5" fill="#0F6E56">read every 60 s · read-only</text>
+  </g>
+
+  <rect x="352" y="56" width="300" height="344" rx="14" fill="#F1EFE8" stroke="#B4B2A9"/>
+  <g font-size="14">
+    <rect x="372" y="72" width="260" height="54" rx="8" fill="#EEEDFE" stroke="#534AB7"/>
+    <text x="388" y="95" font-weight="600" fill="#3C3489">Ingest and enrich</text>
+    <text x="388" y="114" font-size="12.5" fill="#534AB7">ticket from the worktree path</text>
+
+    <rect x="372" y="136" width="260" height="54" rx="8" fill="#EEEDFE" stroke="#534AB7"/>
+    <text x="388" y="159" font-weight="600" fill="#3C3489">Event log</text>
+    <text x="388" y="178" font-size="12.5" fill="#534AB7">SQLite, append-only, 14 days</text>
+
+    <rect x="372" y="200" width="260" height="54" rx="8" fill="#EEEDFE" stroke="#534AB7"/>
+    <text x="388" y="223" font-weight="600" fill="#3C3489">Live state</text>
+    <text x="388" y="242" font-size="12.5" fill="#534AB7">lanes, steps, agents, skills, phases</text>
+
+    <rect x="372" y="264" width="260" height="54" rx="8" fill="#EEEDFE" stroke="#534AB7"/>
+    <text x="388" y="287" font-weight="600" fill="#3C3489">Decisions</text>
+    <text x="388" y="306" font-size="12.5" fill="#534AB7">labels, approval PRs, harness</text>
+
+    <rect x="372" y="328" width="260" height="54" rx="8" fill="#EEEDFE" stroke="#534AB7"/>
+    <text x="388" y="351" font-weight="600" fill="#3C3489">Snapshot stream</text>
+    <text x="388" y="370" font-size="12.5" fill="#534AB7">Server-Sent Events, live</text>
+  </g>
+
+  <g font-size="14">
+    <rect x="712" y="64" width="210" height="70" rx="10" fill="#FAEEDA" stroke="#854F0B"/>
+    <text x="730" y="93" font-weight="600" fill="#633806">Browser dashboard</text>
+    <text x="730" y="115" font-size="12.5" fill="#854F0B">hh start</text>
+
+    <rect x="712" y="150" width="210" height="70" rx="10" fill="#FAEEDA" stroke="#854F0B"/>
+    <text x="730" y="179" font-weight="600" fill="#633806">Terminal: Now and Flow</text>
+    <text x="730" y="201" font-size="12.5" fill="#854F0B">hh watch, any terminal</text>
+
+    <rect x="712" y="236" width="210" height="70" rx="10" fill="#FAEEDA" stroke="#854F0B"/>
+    <text x="730" y="265" font-weight="600" fill="#633806">Claude Code plugin</text>
+    <text x="730" y="287" font-size="12.5" fill="#854F0B">/lanes pane, band, status</text>
+
+    <rect x="712" y="322" width="210" height="70" rx="10" fill="#FAEEDA" stroke="#854F0B"/>
+    <text x="730" y="351" font-weight="600" fill="#633806">Any status bar</text>
+    <text x="730" y="373" font-size="12.5" fill="#854F0B">hh status · tmux, shell</text>
+  </g>
+
+  <g stroke="#5F5E5A" stroke-width="1.4" fill="none">
+    <path d="M290 99 L370 99" marker-end="url(#a)"/>
+    <path d="M290 185 L322 185 L322 112 L370 112" marker-end="url(#a)"/>
+    <path d="M290 271 L332 271 L332 355 L370 355" marker-end="url(#a)"/>
+    <path d="M290 357 L326 357 L326 368 L370 368" marker-end="url(#a)"/>
+    <path d="M502 126 L502 134" marker-end="url(#a)"/>
+    <path d="M502 190 L502 198" marker-end="url(#a)"/>
+    <path d="M502 254 L502 262" marker-end="url(#a)"/>
+    <path d="M502 318 L502 326" marker-end="url(#a)"/>
+    <path d="M632 355 L672 355 L672 99 L710 99" marker-end="url(#a)"/>
+    <path d="M672 185 L710 185" marker-end="url(#a)"/>
+    <path d="M672 271 L710 271" marker-end="url(#a)"/>
+    <path d="M672 355 L710 355" marker-end="url(#a)"/>
+  </g>
+
+  <text x="40" y="432" font-size="12.5" fill="#5F5E5A">Everything runs on your machine. The hub only reads git and GitHub, and keeps status, never prompts, code or tool output.</text>
+  <text x="40" y="452" font-size="12.5" fill="#5F5E5A">Teal: inputs · purple: inside the hub · amber: where you see it</text>
+</svg>
