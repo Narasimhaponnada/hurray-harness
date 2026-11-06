@@ -1,0 +1,12 @@
+{
+  "name": "hurray-harness",
+  "owner": { "name": "Narasimhaponnada" },
+  "description": "hurray-harness: live agent lanes for any harness, inside Claude Code.",
+  "plugins": [
+    {
+      "name": "hurray-harness",
+      "source": "./claude-code-plugin",
+      "description": "Agent lanes beside the chat: a live status line, a lanes pane and a band above the prompt when something needs you."
+    }
+  ]
+}

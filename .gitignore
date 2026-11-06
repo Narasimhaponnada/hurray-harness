@@ -3,3 +3,4 @@ dist/
 *.log
 .DS_Store
 hh.config.json
+claude-code-plugin/.claude-plugin/types/

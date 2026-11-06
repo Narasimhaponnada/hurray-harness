@@ -1,0 +1,7 @@
+{
+  "name": "hurray-harness",
+  "version": "0.1.0",
+  "author": { "name": "Narasimhaponnada" },
+  "description": "Agent lanes beside the chat: a live status line, a lanes pane and a band above the prompt when something needs you. Reads the local hurray-harness hub.",
+  "types": "./types/index.d.ts"
+}

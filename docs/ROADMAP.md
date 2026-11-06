@@ -14,6 +14,7 @@
   - activity.
 - GitHub through `gh` (read-only), plus local git worktrees
 - Claude Code and Cursor hooks; any harness through events or `hh step`
+- Claude Code plugin: status line, decision band and lanes pane (`claude-code-plugin/`); `hh status` for any status bar
 - Demo mode
 
 ## v2
@@ -21,7 +22,6 @@
 - **GitLab adapter.** Issues, epics, milestones and iterations, merge requests and pipelines, through `glab` or the REST API.
 - **Jira adapter.** Stories, epics, fix versions and sprints, and linked PRs or MRs from the development panel.
 - **Cursor and VS Code extension.** The dashboard in a webview panel; one extension covers both.
-- **Claude Code pane.** A thin mod that shows the dashboard beside the chat.
 
 ## v3: team
 

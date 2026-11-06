@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { hostname, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { serve } from '@hono/node-server'
+import type { Snapshot } from './shared/types.js'
 import { DEFAULT_PORT, loadConfig } from './hub/config.js'
 import { run } from './hub/exec.js'
 import { gitRemoteRepo, gitSnapshot } from './hub/git.js'
@@ -11,6 +12,19 @@ import { startDemo } from './hub/demo.js'
 import { Hub } from './hub/hub.js'
 import { createApp } from './hub/server.js'
 import { EventStore } from './hub/store.js'
+
+function statusLine(s: Snapshot): string {
+  const run = s.live.runs.find((r) => r.status === 'running')
+  const busy = s.live.rows.filter((r) => !r.finished && r.current && r.steps[r.current]?.status === 'running').length
+  const board = s.trackers[0]?.board ?? {}
+  const total = Object.values(board).reduce((a, b) => a + b, 0)
+  const parts = ['lanes']
+  if (run?.stage) parts.push(run.stage)
+  parts.push(busy + ' busy')
+  if (s.live.decisions.length) parts.push(s.live.decisions.length + ' need you')
+  if (total) parts.push(`${board['Done'] ?? 0}/${total} done`)
+  return parts.join(' · ')
+}
 
 const HELP = `hurray-harness · Track every build. Lose fewer hairs.
 
@@ -25,6 +39,9 @@ Usage
   hh step --ticket N --step NAME [--lane L1] [--agent developer] [--skill S] [--run ID] -- <command> [args]
       Run a command as one lane step: reports it started, then done or failed from its exit code.
       The command's output and exit code pass through unchanged. Works with any harness or script.
+  hh status [--port ${DEFAULT_PORT}]
+      Print one line for a status bar: stage, busy lanes, what needs you, milestone progress.
+      For Claude Code's statusLine setting, or tmux and shell prompts.
   hh hook <claude-code|cursor> [--port ${DEFAULT_PORT}]
       Forward a tool hook's JSON from stdin to the hub. Never blocks the agent and always exits 0.
 
@@ -82,6 +99,18 @@ async function main(argv: string[]): Promise<number> {
       process.stderr.write(`hh emit: no hub on port ${port} (${(e as Error).message})\n`)
       return 1
     }
+  }
+
+  if (cmd === 'status') {
+    // Always prints one line and exits 0: a status bar must never show an error box.
+    if (!process.stdin.isTTY) await readStdin(200) // Claude Code sends session JSON on stdin; not needed
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(800) })
+      process.stdout.write(statusLine((await r.json()) as Snapshot) + '\n')
+    } catch {
+      process.stdout.write('lanes · hub offline (hh start)\n')
+    }
+    return 0
   }
 
   if (cmd === 'step') {

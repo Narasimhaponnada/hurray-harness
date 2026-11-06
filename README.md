@@ -51,6 +51,30 @@ With nothing else connected you already get the GitHub view, every worktree's pa
 hh step --ticket 42 --lane L1 --step check --agent developer -- npm test
 ```
 
+## Inside Claude Code: always on screen
+
+Install the plugin once, at the prompt of a Claude Code session:
+
+```
+/plugin install hurray-harness --marketplace Narasimhaponnada/hurray-harness
+```
+
+Answer `y` to add the marketplace and pick a scope (user, for every session). With the hub running (`hh start`), every session then shows:
+
+- **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
+- **A band above the prompt** whenever something needs you, with a toast when a new decision appears. **Hide** dismisses the band until the next new decision.
+- **A lanes pane beside the chat** (`/lanes`). It shows milestone progress, what needs you, and each lane's steps as `✓ ● ✗ ! ·`, with the step, recode count, agent, model, skill and what the agent is doing now. Worktrees are listed with ahead and behind counts, their PR and checks.
+
+It reads the hub at `http://127.0.0.1:7311`. Set `HH_URL` to point it elsewhere.
+
+**Status line only, no plugin.** Add this to `~/.claude/settings.json`:
+
+```json
+{ "statusLine": { "type": "command", "command": "hh status" } }
+```
+
+`hh status` prints the same one line, so it also works in tmux or a shell prompt.
+
 ## How it works
 
 ```
@@ -83,5 +107,6 @@ The code is laid out as follows:
 | `src/hub` | Server, store, git, tool hooks, decisions, demo mode |
 | `src/hub/trackers` | One adapter per tracker |
 | `web` | The dashboard (React) |
+| `claude-code-plugin` | The Claude Code plugin: status line, band and lanes pane (`claude plugin test claude-code-plugin`) |
 
 Plans for GitLab, Jira, the editor extensions and the team view are in [docs/ROADMAP.md](docs/ROADMAP.md).
