@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterShellExecution": [{ "command": "curl -s -m 1 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:7311/api/hook/cursor >/dev/null 2>&1; echo '{}'" }],
+    "afterFileEdit": [{ "command": "curl -s -m 1 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:7311/api/hook/cursor >/dev/null 2>&1; echo '{}'" }],
+    "afterMCPExecution": [{ "command": "curl -s -m 1 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:7311/api/hook/cursor >/dev/null 2>&1; echo '{}'" }],
+    "subagentStart": [{ "command": "curl -s -m 1 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:7311/api/hook/cursor >/dev/null 2>&1; echo '{}'" }],
+    "subagentStop": [{ "command": "curl -s -m 1 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:7311/api/hook/cursor >/dev/null 2>&1; echo '{}'" }],
+    "stop": [{ "command": "curl -s -m 1 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:7311/api/hook/cursor >/dev/null 2>&1; echo '{}'" }]
+  }
+}

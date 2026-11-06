@@ -1,0 +1,17 @@
+{
+  "port": 7311,
+  "refreshSeconds": 60,
+  "gitFetch": false,
+  "keepDays": 14,
+  "approvalBranches": ["main"],
+  "labels": {
+    "decision": ["needs-human", "needs-decision", "needs-review", "question"],
+    "blocked": ["blocked", "status:blocked"],
+    "qa": ["qa", "needs-qa", "status:qa"],
+    "inProgress": ["in-progress", "status:in-progress", "wip"],
+    "ready": ["ready", "status:ready"]
+  },
+  "repos": [
+    { "path": "~/code/my-product", "github": "me/my-product", "base": "origin/main", "milestone": "0.2" }
+  ]
+}
