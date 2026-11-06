@@ -216,9 +216,9 @@ footer { padding: 40px 0 60px; color: var(--text-3); font-size: 14px; text-align
 
 <section id="teams">
   <div class="wrap">
-    <p class="eyebrow">Microsoft Teams</p>
+    <p class="eyebrow">On your phone</p>
     <h2>Decide from your phone</h2>
-    <p class="sub">When the harness needs you, a card arrives in Teams with one button per option. Tap one, confirm, and the harness waiting on <code>hh ask --wait</code> carries on with your choice. Links are signed and expire, and the first answer wins.</p>
+    <p class="sub">When the harness waits on <code>hh ask --wait</code>, your phone tells you. With the Claude app, a Claude Code session sends a push notification and asks you there, with no webhook or tunnel. With Microsoft Teams, a card arrives with one button per option. Either way, the first answer wins and the harness carries on with your choice.</p>
     <figure><div class="frame" style="background:#FAF9F6"><img src="teams-phone.png" alt="The decision card in Teams, the confirm page, and the recorded answer" width="2640" height="1440"></div></figure>
     <pre style="white-space: pre-wrap; overflow-wrap: anywhere">choice=$(hh ask "Pick the database" --option Postgres --option SQLite --wait)</pre>
   </div>
@@ -293,6 +293,7 @@ hh watch                <span class="c"># the terminal view</span></pre>
       <a href="https://github.com/Narasimhaponnada/hurray-harness#readme"><b>README</b><span>Commands, configuration and the project layout</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/INTEGRATIONS.md"><b>Integrations</b><span>Claude Code and Cursor hooks, hh step, events, decisions</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/EVENTS.md"><b>Event contract</b><span>Every field and kind a harness can send</span></a>
+      <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/CLAUDE-APP.md"><b>Claude app</b><span>Decisions on your phone through a Claude Code session</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/TEAMS.md"><b>Teams alerts</b><span>Decisions on your phone: setup, tunnels and security</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/ROADMAP.md"><b>Roadmap</b><span>GitLab, Jira, editor panels and a team view</span></a>
     </div>

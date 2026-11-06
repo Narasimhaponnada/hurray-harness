@@ -101,6 +101,7 @@ Answer `y` to add the marketplace, then choose the user scope so it's on in ever
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **An amber band above the prompt** whenever something needs you, with a toast when a new decision appears.
 - **A lanes pane beside the chat** (`/lanes`), with the same Now and Flow views, and buttons to pin one or rotate.
+- **A decision watcher** (`/hurray-harness:decision-watcher`) that asks you on your phone, through the Claude app, whenever the harness waits on you.
 
 <table>
   <tr>
@@ -137,21 +138,20 @@ Details: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) · the event contract: [do
 
 ## Decide from your phone
 
-When the harness needs you, a card arrives in Microsoft Teams. Tap an option, confirm, and the harness carries on with your choice.
-
-![The card in Teams, the confirm page, and the recorded answer](docs/teams-phone.png)
+When the harness needs you, your phone tells you, and your answer goes straight back to the harness.
 
 ```bash
-# Once: a Teams Workflows webhook (template "Post to a chat when a webhook request is received")
-export HH_TEAMS_WEBHOOK='https://…'
-hh start --tunnel          # a tunnel lets your phone reach the answer links
-hh teams test              # a sample card, to check
-
 # In your harness: ask, wait, branch on the answer
 choice=$(hh ask "Pick the database" --option Postgres --option SQLite --recommend Postgres --wait)
 ```
 
-Each button is a signed link that expires, opening it only shows a confirm page, and the first answer wins: from Teams, the dashboard, or `hh answer`. Setup, tunnels and security: [docs/TEAMS.md](docs/TEAMS.md).
+**Through the Claude app (simplest).** In a Claude Code session with Remote Control on, run `/hurray-harness:decision-watcher`. Claude sends a push notification to the Claude app and asks you there, then records your answer. No webhook, no tunnel, and only your Claude account can answer. Guide: [docs/CLAUDE-APP.md](docs/CLAUDE-APP.md).
+
+**Through Microsoft Teams.** A card with one button per option, for people who don't use Claude Code. Each button is a signed link that expires, and opening it only shows a confirm page. Guide: [docs/TEAMS.md](docs/TEAMS.md).
+
+![The card in Teams, the confirm page, and the recorded answer](docs/teams-phone.png)
+
+Either way, the first answer wins: from your phone, the dashboard, or `hh answer`.
 
 ## Commands
 
@@ -164,6 +164,7 @@ Each button is a signed link that expires, opening it only shows a confirm page,
 | `hh step` | Runs a command as one lane step and reports its start and result |
 | `hh emit` | Sends one event, or a list, to the hub |
 | `hh ask` | Opens a decision with `--option`s. With `--wait` it blocks until someone answers and prints the choice |
+| `hh decisions` | Lists what waits on you; `--follow` streams each change, `--json` one object per line |
 | `hh answer` | Answers an open decision from the terminal: `hh answer db1 Postgres` |
 | `hh teams test` | Sends a sample card to your Teams webhook |
 | `hh hook` | Forwards a tool hook's JSON to the hub; never slows the agent |
@@ -198,6 +199,7 @@ Settings can go in `hh.config.json` in the folder you start from (see [`hh.confi
 |---|---|
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Claude Code and Cursor hooks, `hh step`, posting events, decisions from the tracker |
 | [docs/EVENTS.md](docs/EVENTS.md) | The event contract: every field and kind, and how the hub applies them |
+| [docs/CLAUDE-APP.md](docs/CLAUDE-APP.md) | Decisions on your phone through the Claude app: the decision-watcher skill and `hh decisions` |
 | [docs/TEAMS.md](docs/TEAMS.md) | Decisions on your phone through Microsoft Teams: setup, tunnels, `hh ask`, security |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What comes next: GitLab, Jira, editor extensions and a team view |
 
@@ -217,7 +219,7 @@ claude plugin test claude-code-plugin   # the Claude Code plugin, in the engine
 | `src/hub` | Server, event store, git and GitHub readers, tool hooks, decisions, Teams notifier and receiver, demo |
 | `src/tui.ts` | The terminal Now and Flow views |
 | `web` | The browser dashboard (React) |
-| `claude-code-plugin` | The Claude Code plugin: status line, band and lanes pane |
+| `claude-code-plugin` | The Claude Code plugin: status line, band, lanes pane and the decision-watcher skill |
 | `integrations` | Ready-to-copy hook files for Claude Code and Cursor |
 
 ## Roadmap

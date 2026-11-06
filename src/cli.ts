@@ -16,6 +16,7 @@ import { EventStore } from './hub/store.js'
 import { createReceiver } from './hub/receiver.js'
 import { TeamsNotifier, loadSecret } from './hub/teams.js'
 import { startTunnel } from './hub/tunnel.js'
+import { DecisionFeed, feedLine } from './feed.js'
 
 function statusLine(s: Snapshot): string {
   const run = s.live.runs.find((r) => r.status === 'running')
@@ -55,6 +56,10 @@ Usage
       Open a decision for a person. With --wait it blocks until someone answers (on the dashboard, with
       hh answer, or from Teams on a phone) and prints the choice, so a harness script can branch on it.
       Exit 0 when answered, 3 on timeout (or prints --default and exits 0), 1 when no hub is running.
+  hh decisions [--follow] [--json] [--new-only]
+      List what waits on you. With --follow it keeps running and prints one line each time a decision
+      opens, is answered or is closed; the Claude Code decision-watcher skill reads this stream to ask
+      you in the Claude app on your phone. --json prints one JSON object per line.
   hh answer <id> <option>
       Answer an open decision from the terminal.
   hh teams test
@@ -265,6 +270,35 @@ async function main(argv: string[]): Promise<number> {
     }
     process.stderr.write(`hh ask: no answer in ${timeout} s\n`)
     return 3
+  }
+
+  if (cmd === 'decisions') {
+    const follow = argv.includes('--follow')
+    const json = argv.includes('--json')
+    const feed = new DecisionFeed()
+    let first = true
+    let offline = false
+    const say = (line: string) => process.stdout.write(line + '\n')
+    const tick = async (): Promise<boolean> => {
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(3000) })
+        const items = feed.next((await r.json()) as Snapshot)
+        if (offline) { offline = false; say(json ? JSON.stringify({ type: 'hub', status: 'back' }) : 'The hub is back.') }
+        const shown = first && argv.includes('--new-only') ? [] : items
+        if (!follow && !items.length) say(json ? '[]' : 'Nothing needs you.')
+        else if (!follow && json) say(JSON.stringify(shown))
+        else for (const i of shown) say(json ? JSON.stringify(i) : feedLine(i))
+        first = false
+        return true
+      } catch {
+        if (!offline) { offline = true; say(json ? JSON.stringify({ type: 'hub', status: 'offline' }) : `No hub on port ${port}${follow ? '; retrying' : ''}. Start it with: hh start`) }
+        return false
+      }
+    }
+    if (!follow) return (await tick()) ? 0 : 1
+    await tick()
+    setInterval(() => void tick(), 2000)
+    return new Promise<number>(() => {})
   }
 
   if (cmd === 'answer') {
