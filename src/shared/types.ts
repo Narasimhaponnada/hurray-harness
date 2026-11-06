@@ -12,6 +12,7 @@ export type EventKind =
   | 'step.end'
   | 'decision.open' // something waits on a person
   | 'decision.close'
+  | 'decision.answer' // a person picked one of the options; the decision is closed with that choice
   | 'activity' // a raw agent action from a tool hook (edit, shell command, MCP call)
 
 export interface AgentRef {
@@ -26,6 +27,8 @@ export interface DecisionRef {
   why?: string
   recommendation?: string
   url?: string
+  options?: string[] // the choices a person can pick, for example Postgres and SQLite
+  choice?: string // on decision.answer: the option picked
 }
 
 export interface HHEvent {
@@ -123,6 +126,8 @@ export interface Decision extends DecisionRef {
   source: string
   repo?: string
   ticket?: number
+  answer?: { choice: string; at: string; via: string } // set once a person has decided
+  tracker?: boolean // read from the tracker (a label or an approval PR), not sent by a harness
 }
 
 export interface PhaseState {
@@ -158,6 +163,7 @@ export interface LiveState {
   rows: TicketRow[]
   segments: Segment[]
   decisions: Decision[]
+  answered: Decision[] // the most recent decisions people have made, newest first
   phases: PhaseState[]
   agents: AgentState[]
   activity: ActivityItem[]

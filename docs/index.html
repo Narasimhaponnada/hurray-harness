@@ -25,7 +25,7 @@
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 var(--sans); }
 a { color: var(--accent); }
-img { max-width: 100%; display: block; }
+img { max-width: 100%; height: auto; display: block; }
 .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 nav { position: sticky; top: 0; z-index: 5; backdrop-filter: saturate(1.4) blur(10px); background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
 nav .wrap { display: flex; align-items: center; gap: 22px; height: 56px; }
@@ -214,6 +214,16 @@ footer { padding: 40px 0 60px; color: var(--text-3); font-size: 14px; text-align
   </div>
 </section>
 
+<section id="teams">
+  <div class="wrap">
+    <p class="eyebrow">Microsoft Teams</p>
+    <h2>Decide from your phone</h2>
+    <p class="sub">When the harness needs you, a card arrives in Teams with one button per option. Tap one, confirm, and the harness waiting on <code>hh ask --wait</code> carries on with your choice. Links are signed and expire, and the first answer wins.</p>
+    <figure><div class="frame" style="background:#FAF9F6"><img src="teams-phone.png" alt="The decision card in Teams, the confirm page, and the recorded answer" width="2640" height="1440"></div></figure>
+    <pre style="white-space: pre-wrap; overflow-wrap: anywhere">choice=$(hh ask "Pick the database" --option Postgres --option SQLite --wait)</pre>
+  </div>
+</section>
+
 <section id="connect">
   <div class="wrap">
     <p class="eyebrow">Works with any harness</p>
@@ -283,6 +293,7 @@ hh watch                <span class="c"># the terminal view</span></pre>
       <a href="https://github.com/Narasimhaponnada/hurray-harness#readme"><b>README</b><span>Commands, configuration and the project layout</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/INTEGRATIONS.md"><b>Integrations</b><span>Claude Code and Cursor hooks, hh step, events, decisions</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/EVENTS.md"><b>Event contract</b><span>Every field and kind a harness can send</span></a>
+      <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/TEAMS.md"><b>Teams alerts</b><span>Decisions on your phone: setup, tunnels and security</span></a>
       <a href="https://github.com/Narasimhaponnada/hurray-harness/blob/main/docs/ROADMAP.md"><b>Roadmap</b><span>GitLab, Jira, editor panels and a team view</span></a>
     </div>
   </div>

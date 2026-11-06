@@ -31,7 +31,7 @@ hh emit '{"kind":"step.start","ticket":42,"lane":"L1","step":"code","agent":{"ro
 | `tokens` | `{used, budget}` | Budget meter in the step detail |
 | `pr`, `branch` | number, string | The step's PR and branch |
 | `session`, `cwd`, `tool` | string | From tool hooks. `cwd` ties an event to a worktree, and so to its ticket |
-| `decision` | `{id, title, why?, recommendation?, url?}` | For decision events |
+| `decision` | `{id, title, why?, recommendation?, url?, options?, choice?}` | For decision events. `options` (up to 6) become buttons on the dashboard and on Teams cards; `choice` is the option picked, on `decision.answer` |
 
 ## Kinds
 
@@ -40,8 +40,19 @@ hh emit '{"kind":"step.start","ticket":42,"lane":"L1","step":"code","agent":{"ro
 | `run.start`, `run.stage`, `run.end` | A run begins, moves stage, ends. Stages light up the phase strip |
 | `phase` | Set a phase's status directly (for phases outside a run, such as Discovery) |
 | `step.start`, `step.end` | One agent step on one ticket. These build the lane grid, the swimlanes and the agent list |
-| `decision.open`, `decision.close` | Something waits on a person. It goes to the top of the dashboard, with a desktop notification |
+| `decision.open`, `decision.close` | Something waits on a person. It goes to the top of the dashboard, with a desktop notification, and to Teams when set up ([TEAMS.md](TEAMS.md)) |
+| `decision.answer` | A person picked an option. The decision leaves the open list and keeps its answer, which `GET /api/decisions/<id>` returns. The first answer wins; `source` says where it came from (`teams`, `dashboard`, `cli`, `timeout`) |
 | `activity` | A raw action from a tool hook. Shown in the activity list and as "doing now" on the ticket's running step |
+
+## Asking and waiting
+
+A harness that needs a person opens a decision with options and waits for the answer:
+
+```bash
+choice=$(hh ask "Pick the database" --option Postgres --option SQLite --wait --timeout 3600)
+```
+
+Or, over HTTP: post `decision.open` with `decision.options`, then poll `GET /api/decisions/<id>` until it returns `{"status":"answered","choice":"…"}`. It returns `open` while waiting and `404` once the decision is closed without an answer. To answer from your own tool, post `{"choice":"Postgres"}` to `/api/decisions/<id>/answer`.
 
 ## Rules the hub applies
 

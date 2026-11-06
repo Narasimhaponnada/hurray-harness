@@ -90,8 +90,8 @@ export function startDemo(hub: Hub, speed = 1): void {
   }
 
   // A decision the lead sends to the owner, and the owner answering it later.
-  at(20, { kind: 'decision.open', ticket: 63, decision: { id: 'demo#63', title: '#63 Choose tenancy model', why: 'Decision ticket: only the owner or an ADR can make it', recommendation: 'Lead recommends a shared schema with row-level tenant ids', url: 'https://github.com/' + REPO + '/issues/63' } })
-  at(75, { kind: 'decision.close', decision: { id: 'demo#63', title: '#63 Choose tenancy model' } })
+  at(20, { kind: 'decision.open', ticket: 63, decision: { id: 'demo#63', title: '#63 Choose tenancy model', why: 'Decision ticket: only the owner or an ADR can make it', recommendation: 'Shared schema', options: ['Shared schema', 'Schema per tenant', 'Database per tenant'], url: 'https://github.com/' + REPO + '/issues/63' } })
+  at(75, { kind: 'decision.answer', source: 'teams', decision: { id: 'demo#63', title: '#63 Choose tenancy model', choice: 'Shared schema' } })
 
   // The architect writes an ADR in its own lane while the developers build.
   at(24, { kind: 'step.start', lane: 'L5', ticket: 58, title: 'ADR 0007 tenancy', epic: 30, step: 'tests', skill: 'write-adr', agent: { role: 'architect', model: 'opus' }, detail: 'Writing docs/adr/0007-tenancy.md', files: ['docs/adr/0007-tenancy.md'], tokens: { used: 40_000, budget: 150_000 } })

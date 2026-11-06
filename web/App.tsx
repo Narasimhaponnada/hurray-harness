@@ -68,7 +68,7 @@ export function App() {
       <Header conn={conn} repo={tracker?.repo ?? run?.repo} milestone={tracker?.milestone?.title ?? run?.milestone}
         run={run ? `${run.stage ?? ''} · ${run.status === 'running' ? 'running' : 'ended'} · started ${ago(run.startedAt)} ago` : undefined} />
 
-      <Decisions items={decisions} />
+      <Decisions items={decisions} answered={snap.live.answered ?? []} />
 
       <section className="section">
         <header><h2>Product phases</h2><span className="hint">the skill running each phase; amber means it waits on you</span></header>

@@ -27,6 +27,6 @@
 
 - **Team server.** Postgres instead of SQLite, sign-in, and every person's hub sending its event log (status only, never content).
 - **Read-only MCP server.** Agents in any tool can ask "who holds #47?" or "what is decided about tenancy?". Answers come from the repo and the tracker, not from a separate memory.
-- **Alerts in Slack or Teams.** For decisions that wait on a person.
+- **Alerts in Slack.** Teams is done (docs/TEAMS.md); Slack would reuse the same signed answer links.
 
 Every adapter implements `TrackerAdapter` in `src/hub/trackers/index.ts` and maps onto the common model in `src/shared/types.ts`.

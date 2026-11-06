@@ -5,6 +5,12 @@
   "keepDays": 14,
   "rotateSeconds": 120,
   "approvalBranches": ["main"],
+  "teams": {
+    "webhookUrl": "https://<your Teams Workflows webhook URL>",
+    "tunnel": true,
+    "notify": "all",
+    "linkHours": 24
+  },
   "labels": {
     "decision": ["needs-human", "needs-decision", "needs-review", "question"],
     "blocked": ["blocked", "status:blocked"],

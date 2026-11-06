@@ -40,6 +40,7 @@ export class LiveBuilder {
   private rows = new Map<string, TicketRow>()
   private segments: Segment[] = []
   private decisions = new Map<string, Decision>()
+  private answered = new Map<string, Decision>()
   private phases = new Map<string, PhaseState>()
   private agents = new Map<string, AgentState>()
   private activity: ActivityItem[] = []
@@ -61,6 +62,7 @@ export class LiveBuilder {
       case 'step.end': return this.step(e, 'end')
       case 'decision.open': return this.decisionOpen(e)
       case 'decision.close': return this.decisionClose(e)
+      case 'decision.answer': return this.decisionAnswer(e)
       case 'activity': return this.act(e)
     }
   }
@@ -203,7 +205,28 @@ export class LiveBuilder {
 
   private decisionOpen(e: HHEvent) {
     if (!e.decision?.id) return
-    this.decisions.set(e.decision.id, { ...e.decision, openedAt: e.ts, source: e.source, repo: e.repo, ticket: e.ticket })
+    const { choice: _, ...ref } = e.decision
+    this.decisions.set(e.decision.id, { ...ref, openedAt: e.ts, source: e.source, repo: e.repo, ticket: e.ticket })
+    this.answered.delete(e.decision.id) // asked again: the earlier answer no longer stands
+  }
+
+  // A person picked an option. The decision leaves the open list and is kept with its answer, so the
+  // harness waiting on it (hh ask --wait) can read the choice.
+  private decisionAnswer(e: HHEvent) {
+    const id = e.decision?.id
+    const choice = e.decision?.choice
+    if (!id || !choice) return
+    const open = this.decisions.get(id)
+    if (!open) return // unknown or already closed: the first answer wins
+    this.decisions.delete(id)
+    this.answered.delete(id)
+    this.answered.set(id, { ...open, answer: { choice, at: e.ts, via: e.source } })
+    while (this.answered.size > 50) this.answered.delete(this.answered.keys().next().value!)
+  }
+
+  // An open or answered decision, for the hub's lookups.
+  decision(id: string): Decision | undefined {
+    return this.decisions.get(id) ?? this.answered.get(id)
   }
 
   private decisionClose(e: HHEvent) {
@@ -236,6 +259,7 @@ export class LiveBuilder {
       rows,
       segments: this.segments.slice(),
       decisions: [...this.decisions.values()].sort((a, b) => a.openedAt.localeCompare(b.openedAt)),
+      answered: [...this.answered.values()].reverse().slice(0, 10),
       phases: [...this.phases.values()],
       agents: [...this.agents.values()].sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true })),
       activity: this.activity.slice(-40).reverse(),

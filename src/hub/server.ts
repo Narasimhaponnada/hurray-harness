@@ -61,6 +61,34 @@ export function createApp(hub: Hub): Hono {
     return c.json({ ok: true })
   })
 
+  // A harness waiting on a person reads the decision here (hh ask --wait polls it).
+  app.get('/api/decisions/:id', (c) => {
+    const id = c.req.param('id')
+    const d = hub.decision(id) ?? hub.snapshot().live.decisions.find((x) => x.id === id)
+    if (!d) return c.json({ status: 'unknown', id }, 404)
+    return c.json({ status: d.answer ? 'answered' : 'open', id, choice: d.answer?.choice, decision: d })
+  })
+
+  // Answer from this machine: the dashboard's buttons and hh answer.
+  app.post('/api/decisions/:id/answer', async (c) => {
+    let body: { choice?: unknown; via?: unknown }
+    try { body = await c.req.json() } catch { return c.json({ error: 'body must be JSON' }, 400) }
+    if (typeof body.choice !== 'string' || !body.choice.trim()) return c.json({ error: 'choice is required' }, 400)
+    const via = typeof body.via === 'string' && /^[a-z-]{1,20}$/.test(body.via) ? body.via : 'dashboard'
+    const r = hub.answer(c.req.param('id'), body.choice, via)
+    return r.ok ? c.json({ ok: true, choice: r.decision.answer?.choice }) : c.json({ error: r.error }, 409)
+  })
+
+  // Sends a sample card to the Teams webhook, to check the setup.
+  app.post('/api/teams/test', async (c) => {
+    const n = hub.notifier
+    if (!n?.enabled) return c.json({ error: 'no Teams webhook set: add teams.webhookUrl to hh.config.json or set HH_TEAMS_WEBHOOK' }, 400)
+    const { decisionCard } = await import('./teams.js')
+    const sample = { id: 'hh-test', title: 'Test from hurray-harness', why: 'If you can read this on your phone, Teams alerts work.', openedAt: new Date().toISOString(), source: 'cli' }
+    const r = await n.send(decisionCard(sample, [], n.cfg.publicUrl ? 'Answer links will open ' + n.cfg.publicUrl : 'No public URL yet: cards will have no answer buttons.'))
+    return c.json({ ...r, publicUrl: n.cfg.publicUrl ?? null }, r.ok ? 200 : 502)
+  })
+
   app.post('/api/refresh', async (c) => {
     await hub.poll()
     return c.json({ ok: true })

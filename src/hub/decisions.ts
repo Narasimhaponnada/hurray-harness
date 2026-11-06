@@ -18,9 +18,9 @@ export function trackerDecisions(snaps: TrackerSnapshot[], labels: LabelRules, a
       const ls = lower(i.labels)
       const hit = ls.find((l) => want.includes(l))
       if (hit) {
-        out.push({ id: `${s.repo}#${i.number}:decision`, title: `#${i.number} ${i.title}`, why: 'Labelled ' + hit, url: i.url, openedAt: at, source: s.provider, repo: s.repo, ticket: i.number })
+        out.push({ id: `${s.repo}#${i.number}:decision`, title: `#${i.number} ${i.title}`, why: 'Labelled ' + hit, url: i.url, openedAt: at, source: s.provider, repo: s.repo, ticket: i.number, tracker: true })
       } else if (i.status === 'Blocked' || ls.some((l) => blocked.includes(l))) {
-        out.push({ id: `${s.repo}#${i.number}:blocked`, title: `#${i.number} ${i.title}`, why: 'Blocked', url: i.url, openedAt: at, source: s.provider, repo: s.repo, ticket: i.number })
+        out.push({ id: `${s.repo}#${i.number}:blocked`, title: `#${i.number} ${i.title}`, why: 'Blocked', url: i.url, openedAt: at, source: s.provider, repo: s.repo, ticket: i.number, tracker: true })
       }
     }
     for (const c of s.changes) {
@@ -29,7 +29,7 @@ export function trackerDecisions(snaps: TrackerSnapshot[], labels: LabelRules, a
       out.push({
         id: `${s.repo}!${c.number}:approval`, title: `PR #${c.number} into ${c.base}`,
         why: green && c.mergeable !== 'conflicting' ? 'Checks green: ready for your merge' : 'Waiting on checks: ' + c.checks,
-        url: c.url, openedAt: at, source: s.provider, repo: s.repo,
+        url: c.url, openedAt: at, source: s.provider, repo: s.repo, tracker: true,
       })
     }
   }

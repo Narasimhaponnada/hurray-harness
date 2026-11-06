@@ -4,6 +4,7 @@ import type { Config } from './config.js'
 import { trackerDecisions } from './decisions.js'
 import { gitRemoteRepo, gitSnapshot, worktreeFor } from './git.js'
 import { EventStore } from './store.js'
+import type { TeamsNotifier } from './teams.js'
 import type { TrackerAdapter } from './trackers/index.js'
 import { GitHubAdapter } from './trackers/github.js'
 
@@ -19,6 +20,7 @@ export class Hub {
   private timer?: NodeJS.Timeout
   private pending?: NodeJS.Timeout
   private polling = false
+  notifier?: TeamsNotifier
 
   constructor(readonly cfg: Config, readonly store: EventStore) {}
 
@@ -113,6 +115,22 @@ export class Hub {
     return e
   }
 
+  // An open or answered decision sent by a harness.
+  decision(id: string): Decision | undefined {
+    return this.builder.decision(id)
+  }
+
+  // Records a person's choice. With options, the choice must be one of them (any letter case).
+  answer(id: string, choice: string, via: string): { ok: true; decision: Decision } | { ok: false; error: string } {
+    const d = this.builder.decision(id)
+    if (!d) return { ok: false, error: 'no open decision with that id' }
+    if (d.answer) return { ok: false, error: 'already decided: ' + d.answer.choice }
+    const picked = d.options?.length ? d.options.find((o) => o.toLowerCase() === choice.trim().toLowerCase()) : choice.trim().slice(0, 80)
+    if (!picked) return { ok: false, error: 'choose one of: ' + d.options!.join(', ') }
+    this.ingest({ v: 1, ts: new Date().toISOString(), kind: 'decision.answer', source: via, repo: d.repo, ticket: d.ticket, decision: { id, title: d.title, choice: picked } })
+    return { ok: true, decision: this.builder.decision(id)! }
+  }
+
   snapshot(): Snapshot {
     const live = this.builder.snapshot()
     const trackers = [...this.trackerSnaps.values()]
@@ -132,8 +150,9 @@ export class Hub {
     if (this.pending) return
     this.pending = setTimeout(() => {
       this.pending = undefined
-      if (!this.listeners.size) return
+      if (!this.listeners.size && !this.notifier?.enabled) return
       const s = this.snapshot()
+      if (this.notifier?.enabled) void this.notifier.sync(s.live.decisions, s.live.answered)
       for (const fn of this.listeners) fn(s)
     }, 200)
   }

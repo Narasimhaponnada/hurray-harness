@@ -94,7 +94,10 @@ export function render(snap: Snapshot, width: number, s: Style = { color: true }
   // Decisions
   if (decisions.length) {
     out.push(paint(s, 'need', fit(` Needs your decision (${decisions.length})`, W, 'left')))
-    for (const d of decisions.slice(0, 4)) out.push(paint(s, 'need', fit(`   ${d.title}${d.why ? ' · ' + d.why : ''}`, W, 'left')))
+    for (const d of decisions.slice(0, 4)) {
+      out.push(paint(s, 'need', fit(`   ${d.title}${d.why ? ' · ' + d.why : ''}`, W, 'left')))
+      if (d.options?.length) out.push(paint(s, 'need', fit(`     ${d.options.join(' / ')} · hh answer ${d.id} "<option>"`, W, 'left')))
+    }
     out.push('')
   }
 

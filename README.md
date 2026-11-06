@@ -11,6 +11,7 @@ A live view of AI agents building your product: which lane is on which ticket, w
 <a href="#use-it-on-your-repo">Use it</a> ·
 <a href="#inside-claude-code">Claude Code</a> ·
 <a href="#connect-your-agents">Connect agents</a> ·
+<a href="#decide-from-your-phone">Teams</a> ·
 <a href="#how-it-works">How it works</a> ·
 <a href="https://narasimhaponnada.github.io/hurray-harness/">Website</a>
 </p>
@@ -134,6 +135,24 @@ hh emit '{"kind":"decision.open","decision":{"id":"r1-db","title":"Pick the data
 
 Details: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) · the event contract: [docs/EVENTS.md](docs/EVENTS.md).
 
+## Decide from your phone
+
+When the harness needs you, a card arrives in Microsoft Teams. Tap an option, confirm, and the harness carries on with your choice.
+
+![The card in Teams, the confirm page, and the recorded answer](docs/teams-phone.png)
+
+```bash
+# Once: a Teams Workflows webhook (template "Post to a chat when a webhook request is received")
+export HH_TEAMS_WEBHOOK='https://…'
+hh start --tunnel          # a tunnel lets your phone reach the answer links
+hh teams test              # a sample card, to check
+
+# In your harness: ask, wait, branch on the answer
+choice=$(hh ask "Pick the database" --option Postgres --option SQLite --recommend Postgres --wait)
+```
+
+Each button is a signed link that expires, opening it only shows a confirm page, and the first answer wins: from Teams, the dashboard, or `hh answer`. Setup, tunnels and security: [docs/TEAMS.md](docs/TEAMS.md).
+
 ## Commands
 
 | Command | What it does |
@@ -144,6 +163,9 @@ Details: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) · the event contract: [do
 | `hh status` | One line for any status bar: stage, busy lanes, what needs you, progress |
 | `hh step` | Runs a command as one lane step and reports its start and result |
 | `hh emit` | Sends one event, or a list, to the hub |
+| `hh ask` | Opens a decision with `--option`s. With `--wait` it blocks until someone answers and prints the choice |
+| `hh answer` | Answers an open decision from the terminal: `hh answer db1 Postgres` |
+| `hh teams test` | Sends a sample card to your Teams webhook |
 | `hh hook` | Forwards a tool hook's JSON to the hub; never slows the agent |
 
 ## Configuration
@@ -158,6 +180,7 @@ Settings can go in `hh.config.json` in the folder you start from (see [`hh.confi
 | `labels` | `needs-human`, `blocked` and others | Which issue labels mean decision, blocked, QA, in progress and ready |
 | `refreshSeconds` | `60` | How often GitHub is read; git worktrees are read every 10 seconds |
 | `keepDays` | `14` | How long the event log is kept |
+| `teams` | off | Teams alerts: `webhookUrl`, `publicUrl` or `tunnel`, `notify`, `linkHours` (see [docs/TEAMS.md](docs/TEAMS.md)) |
 
 ## How it works
 
@@ -166,7 +189,7 @@ Settings can go in `hh.config.json` in the folder you start from (see [`hh.confi
 - **Read-only on GitHub.** GraphQL queries through `gh`, with your own sign-in. No token is stored.
 - **Read-only on git.** It uses `worktree list`, `rev-list` and `status`. It never checks out, merges or deletes anything.
 - **Status, not content.** The hub keeps the action, the file path or the command line. It never keeps prompts, file contents or tool output.
-- **Local only.** It listens on 127.0.0.1 and refuses writes from web pages on other sites.
+- **Local only.** It listens on 127.0.0.1 and refuses writes from web pages on other sites. With Teams on, a tunnel exposes only the decision receiver, never the dashboard or the API.
 - **Append-only log.** Each event carries who, where and which run. That way a team server can merge everyone's logs later.
 
 ## Documentation
@@ -175,6 +198,7 @@ Settings can go in `hh.config.json` in the folder you start from (see [`hh.confi
 |---|---|
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Claude Code and Cursor hooks, `hh step`, posting events, decisions from the tracker |
 | [docs/EVENTS.md](docs/EVENTS.md) | The event contract: every field and kind, and how the hub applies them |
+| [docs/TEAMS.md](docs/TEAMS.md) | Decisions on your phone through Microsoft Teams: setup, tunnels, `hh ask`, security |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What comes next: GitLab, Jira, editor extensions and a team view |
 
 ## Development
@@ -190,7 +214,7 @@ claude plugin test claude-code-plugin   # the Claude Code plugin, in the engine
 | Path | Contents |
 |---|---|
 | `src/shared` | The event contract, validation, and the reducer from events to live state |
-| `src/hub` | Server, event store, git and GitHub readers, tool hooks, decisions, demo |
+| `src/hub` | Server, event store, git and GitHub readers, tool hooks, decisions, Teams notifier and receiver, demo |
 | `src/tui.ts` | The terminal Now and Flow views |
 | `web` | The browser dashboard (React) |
 | `claude-code-plugin` | The Claude Code plugin: status line, band and lanes pane |

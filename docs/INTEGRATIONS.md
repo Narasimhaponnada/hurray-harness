@@ -57,6 +57,16 @@ fetch('http://127.0.0.1:7311/api/events', {
 
 If your harness runs where it cannot make network calls (some workflow engines replay scripts and forbid side effects), send events from the scripts or commands its agents call instead, using `hh step` or `hh emit`.
 
+## Asking a person and waiting for the answer
+
+When your harness needs a person to choose, ask with options and wait. The answer can come from the dashboard, from `hh answer`, or from your phone through Microsoft Teams ([TEAMS.md](TEAMS.md)):
+
+```bash
+choice=$(hh ask "Pick the database" --option Postgres --option SQLite --recommend Postgres --ticket 12 --wait --timeout 3600)
+```
+
+The command prints the option picked and exits 0, so a script can branch on it. Exit codes are 3 on timeout (or use `--default`) and 1 when no hub is running.
+
 ## Decisions from the tracker
 
 The hub raises "needs your decision" items on its own from:

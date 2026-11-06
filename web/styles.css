@@ -158,3 +158,12 @@ svg .t3 { fill: var(--text-3); font-size: 11px; }
 .err { color: var(--bad); font-size: 12px; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-2); margin-top: 10px; }
 .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+/* Answering a decision from the dashboard */
+.decisions .options { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.decisions .options button { font: inherit; font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--warn-fill); background: transparent; color: inherit; cursor: pointer; }
+.decisions .options button.recommended { background: var(--warn-fill); color: var(--warn-bg); }
+.decisions .options button:disabled { opacity: 0.5; cursor: wait; }
+.decisions .err { font-size: 12px; text-decoration: underline; }
+.decided { background: var(--ok-bg); border: 1px solid var(--ok-fill); color: var(--ok); border-radius: 12px; padding: 8px 14px; margin-bottom: 14px; font-size: 13px; display: grid; gap: 2px; }
+.decided .muted { opacity: 0.85; }

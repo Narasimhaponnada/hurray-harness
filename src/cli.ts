@@ -13,6 +13,9 @@ import { startDemo } from './hub/demo.js'
 import { Hub } from './hub/hub.js'
 import { createApp } from './hub/server.js'
 import { EventStore } from './hub/store.js'
+import { createReceiver } from './hub/receiver.js'
+import { TeamsNotifier, loadSecret } from './hub/teams.js'
+import { startTunnel } from './hub/tunnel.js'
 
 function statusLine(s: Snapshot): string {
   const run = s.live.runs.find((r) => r.status === 'running')
@@ -47,6 +50,16 @@ Usage
   hh status [--port ${DEFAULT_PORT}]
       Print one line for a status bar: stage, busy lanes, what needs you, milestone progress.
       For Claude Code's statusLine setting, or tmux and shell prompts.
+  hh ask "Title" --option A --option B [--id ID] [--why TEXT] [--recommend A] [--ticket N] [--url URL]
+         [--wait] [--timeout 3600] [--default A]
+      Open a decision for a person. With --wait it blocks until someone answers (on the dashboard, with
+      hh answer, or from Teams on a phone) and prints the choice, so a harness script can branch on it.
+      Exit 0 when answered, 3 on timeout (or prints --default and exits 0), 1 when no hub is running.
+  hh answer <id> <option>
+      Answer an open decision from the terminal.
+  hh teams test
+      Send a sample card to the Teams webhook set in hh.config.json or HH_TEAMS_WEBHOOK.
+      Teams alerts: hh start --teams-webhook URL [--public-url https://...] [--tunnel]. See docs/TEAMS.md.
   hh hook <claude-code|cursor> [--port ${DEFAULT_PORT}]
       Forward a tool hook's JSON from stdin to the hub. Never blocks the agent and always exits 0.
 
@@ -208,6 +221,81 @@ async function main(argv: string[]): Promise<number> {
     return code
   }
 
+  if (cmd === 'ask') {
+    const title = argv[1] && !argv[1].startsWith('--') ? argv[1] : undefined
+    const options = argv.flatMap((a, i) => (a === '--option' && argv[i + 1] ? [argv[i + 1]!] : []))
+    if (!title) { process.stderr.write('hh ask: needs a title, for example hh ask "Pick the database" --option Postgres --option SQLite\n'); return 2 }
+    const id = arg(argv, 'id') ?? 'ask-' + Date.now().toString(36)
+    const event = {
+      v: 1, kind: 'decision.open', source: arg(argv, 'source') ?? 'cli', user: userInfo().username, machine: hostname(), cwd: process.cwd(),
+      ticket: arg(argv, 'ticket'), lane: arg(argv, 'lane'), run: arg(argv, 'run'), repo: arg(argv, 'repo'),
+      decision: { id, title, why: arg(argv, 'why'), recommendation: arg(argv, 'recommend'), url: arg(argv, 'url'), options },
+    }
+    try {
+      const r = await post(port, '/api/events', JSON.stringify(event), 5000)
+      if (!r.ok) { process.stderr.write('hh ask: ' + (await r.text()) + '\n'); return 1 }
+    } catch (e) {
+      process.stderr.write(`hh ask: no hub on port ${port} (${(e as Error).message})\n`)
+      return 1
+    }
+    if (!argv.includes('--wait')) { process.stdout.write(id + '\n'); return 0 }
+    process.stderr.write(`Waiting for a decision on "${title}" (${id})${options.length ? ': ' + options.join(' / ') : ''}\n`)
+    const timeout = Number(arg(argv, 'timeout') ?? 0)
+    const until = timeout > 0 ? Date.now() + timeout * 1000 : Infinity
+    let misses = 0
+    while (Date.now() < until) {
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/api/decisions/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(3000) })
+        const body = (await r.json()) as { status: string; choice?: string }
+        misses = 0
+        if (body.status === 'answered' && body.choice) { process.stdout.write(body.choice + '\n'); return 0 }
+        if (body.status === 'unknown') { process.stderr.write('hh ask: the decision was closed without an answer\n'); return 4 }
+      } catch {
+        // The hub may restart while we wait; give up only after a minute without it.
+        if (++misses > 30) { process.stderr.write('hh ask: lost the hub\n'); return 1 }
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    const fallback = arg(argv, 'default')
+    if (fallback) {
+      process.stderr.write(`hh ask: no answer in ${timeout} s; going with the default, ${fallback}\n`)
+      try { await post(port, `/api/decisions/${encodeURIComponent(id)}/answer`, JSON.stringify({ choice: fallback, via: 'timeout' }), 3000) } catch { /* hub gone */ }
+      process.stdout.write(fallback + '\n')
+      return 0
+    }
+    process.stderr.write(`hh ask: no answer in ${timeout} s\n`)
+    return 3
+  }
+
+  if (cmd === 'answer') {
+    const [id, ...rest] = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--port')
+    const choice = rest.join(' ')
+    if (!id || !choice) { process.stderr.write('hh answer: needs a decision id and an option\n'); return 2 }
+    try {
+      const r = await post(port, `/api/decisions/${encodeURIComponent(id)}/answer`, JSON.stringify({ choice, via: 'cli' }), 5000)
+      const body = (await r.json()) as { choice?: string; error?: string }
+      process.stdout.write(r.ok ? `Decided: ${body.choice}\n` : `hh answer: ${body.error}\n`)
+      return r.ok ? 0 : 1
+    } catch (e) {
+      process.stderr.write(`hh answer: no hub on port ${port} (${(e as Error).message})\n`)
+      return 1
+    }
+  }
+
+  if (cmd === 'teams') {
+    if (argv[1] !== 'test') { process.stderr.write('Usage: hh teams test\n'); return 2 }
+    try {
+      const r = await post(port, '/api/teams/test', '{}', 15_000)
+      const body = (await r.json()) as { ok?: boolean; status?: number; error?: string; publicUrl?: string | null }
+      if (r.ok) process.stdout.write(`Sent. Check the Teams channel or chat.${body.publicUrl ? ' Answer links open ' + body.publicUrl : ' No public URL yet, so cards have no answer buttons.'}\n`)
+      else process.stdout.write(`Not sent: ${body.error ?? 'the webhook answered ' + body.status}\n`)
+      return r.ok ? 0 : 1
+    } catch (e) {
+      process.stderr.write(`hh teams: no hub on port ${port} (${(e as Error).message})\n`)
+      return 1
+    }
+  }
+
   if (cmd === 'hook') {
     // A hook must never slow or break the agent: short timeout, errors swallowed, exit 0.
     const source = argv[1] && !argv[1].startsWith('--') ? argv[1] : 'claude-code'
@@ -247,6 +335,21 @@ async function main(argv: string[]): Promise<number> {
     const hub = new Hub(cfg, store)
     await hub.init()
     if (cfg.demo) startDemo(hub)
+    let tunnel: { kill(): void } | undefined
+    if (cfg.teams.webhookUrl || cfg.teams.tunnel || cfg.teams.publicUrl) {
+      const secret = loadSecret(cfg.dataDir)
+      serve({ fetch: createReceiver(hub, secret).fetch, port: cfg.teams.receiverPort, hostname: '127.0.0.1' })
+      if (cfg.teams.tunnel && !cfg.teams.publicUrl) {
+        try {
+          const t = await startTunnel(cfg.teams.receiverPort)
+          cfg.teams.publicUrl = t.url
+          tunnel = t.child
+        } catch (e) {
+          process.stderr.write(`Teams: no tunnel (${(e as Error).message}). Cards will have no answer buttons.\n`)
+        }
+      }
+      hub.notifier = new TeamsNotifier(cfg.teams, store, secret)
+    }
     hub.start()
     const app = createApp(hub)
     serve({ fetch: app.fetch, port: cfg.port, hostname: cfg.host }, (info) => {
@@ -255,8 +358,12 @@ async function main(argv: string[]): Promise<number> {
       if (cfg.demo) process.stdout.write('Demo mode: sample lanes, issues and worktrees, nothing read from GitHub.\n')
       else if (!cfg.repos.length) process.stdout.write('No repo yet: run it inside a repo, or pass --repo PATH.\n')
       else for (const r of cfg.repos) process.stdout.write(`Watching ${r.path}${r.github ? ' (' + r.github + ')' : ''} · base ${r.base}\n`)
+      if (hub.notifier?.enabled) {
+        process.stdout.write(`Teams alerts on · receiver on 127.0.0.1:${cfg.teams.receiverPort}${cfg.teams.publicUrl ? ' · answer links via ' + cfg.teams.publicUrl : ' · no public URL, so cards carry no answer buttons'}\n`)
+        void hub.notifier.sync(hub.snapshot().live.decisions, [])
+      }
     })
-    const quit = () => { hub.stop(); store.close(); process.exit(0) }
+    const quit = () => { tunnel?.kill(); hub.stop(); store.close(); process.exit(0) }
     process.on('SIGINT', quit)
     process.on('SIGTERM', quit)
     return new Promise<number>(() => {})
