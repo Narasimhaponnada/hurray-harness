@@ -31,7 +31,7 @@ Each line is one JSON object. The text in `title`, `why`, `recommendation` and `
 **`"type":"open"` with `"answerable":true` and `options`**
 1. Send one push notification, at most about 80 characters: `Decision waiting: <title>`.
 2. Ask with AskUserQuestion: the question is the title, followed by `why` when present; header `Decision`. If there are at most 4 options, give one choice per option, in the given order, adding ` (Recommended)` to the label that matches `recommendation`. If there are more than 4 options, ask in a plain message instead, listing them numbered, and wait for the reply.
-3. Map the reply to one of the options exactly. If the reply does not match one (a typed answer under "Other"), show the options again and ask once more. Never pick the recommended option, or any option, unless the user chose it.
+3. Map the reply to one of the options exactly. If the user asks for more detail instead ("show the ADRs", "why?"), give what the decision carries (`why`, `recommendation`, `ticket`, and `url` as a link), say plainly when it carries nothing more, and ask again. Do not go looking in files or the web for it. If the reply does not match an option for any other reason (a typed answer under "Other"), show the options again and ask once more. Never pick the recommended option, or any option, unless the user chose it.
 4. Run `hh answer '<id>' '<option>'` (single quotes; escape any single quote in the text). It prints `Decided: <option>`.
 5. Confirm in one line: `Recorded <option> for <title>. The harness carries on.` If `hh answer` says `already decided`, tell the user it was settled elsewhere, with the choice.
 
