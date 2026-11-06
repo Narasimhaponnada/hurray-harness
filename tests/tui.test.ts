@@ -27,13 +27,13 @@ describe('terminal view', () => {
     expect(text).toContain('waits on you') // the running Build phase holds while a decision is open
     expect(text).toContain('recode 2')
     expect(text).toContain('developer')
-    expect(text).toContain('↳ feature-build · opus · Running npm test')
+    expect(text).toMatch(/↳ feature-build · opus · \d+:\d\d · Running npm test/)
     expect(text).toContain('3/10 done')
   })
 
   it('never draws wider than the terminal', () => {
     for (const w of [80, 100, 160]) {
-      for (const line of render(snap(), w, { color: true }, now.getTime())) expect(visible(line)).toBeLessThanOrEqual(w)
+      for (const line of render(snap(), w, { color: true }, now.getTime())) expect(visible(line), line.replace(/\x1b\[[0-9;]*m/g, '')).toBeLessThanOrEqual(w)
     }
   })
 
@@ -42,30 +42,39 @@ describe('terminal view', () => {
   })
 })
 
-describe('view rotation', () => {
-  it('takes turns every period and says what comes next', () => {
+describe('two views', () => {
+  it('Now and Flow take turns every period and say what comes next', () => {
     const t0 = 1_000_000
-    expect(rotation(t0, t0, 120)).toEqual({ view: 'grid', next: 'swim', remainingSec: 120 })
-    expect(rotation(t0, t0 + 121_000, 120)).toMatchObject({ view: 'swim', next: 'tree' })
-    expect(rotation(t0, t0 + 241_000, 120)).toMatchObject({ view: 'tree', next: 'agents', remainingSec: 119 })
-    expect(rotation(t0, t0 + 361_000, 120)).toMatchObject({ view: 'agents', next: 'grid' })
-    expect(rotation(t0, t0 + 481_000, 120).view).toBe('grid')
+    expect(rotation(t0, t0, 120)).toEqual({ view: 'now', next: 'flow', remainingSec: 120 })
+    expect(rotation(t0, t0 + 121_000, 120)).toMatchObject({ view: 'flow', next: 'now' })
+    expect(rotation(t0, t0 + 241_000, 120).view).toBe('now')
+    expect(rotation(0, 999_000, 0).view).toBe('now')
   })
-  it('skips views with nothing to show, and shows one view when rotation is off', () => {
-    expect(rotation(0, 130_000, 120, ['grid', 'tree']).view).toBe('tree')
-    expect(availableViews(snap())).toEqual(['grid', 'swim', 'agents'])
-    expect(rotation(0, 999_000, 0).view).toBe('grid')
+  it('skips Flow when there is no step and no worktree yet', () => {
+    expect(availableViews(snap())).toEqual(['now', 'flow'])
+    expect(availableViews({ ...snap(), live: { ...snap().live, segments: [] } })).toEqual(['now'])
   })
-  it('shows each running agent with its skill, step, recode and what it is doing', () => {
-    const text = render(snap(), 140, { color: false }, now.getTime(), 'agents').join('\n')
-    expect(text).toContain('Agents and skills · 1 running')
-    expect(text).toMatch(/feature-build\s+1 · developer L1/)
-    expect(text).toMatch(/L1\s+■ developer\s+opus\s+feature-build\s+#42\s+check \(recode 2\)/)
-    expect(text).toContain('Running npm test')
+  it('Now shows the skills running, each agent in the grid with model, time and doing now, and idle agents', () => {
+    const text = render(snap(), 140, { color: false }, now.getTime(), 'now').join('\n')
+    expect(text).toMatch(/Skills running feature-build ×1 \(developer L1\)/)
+    expect(text).toContain('recode 2')
+    expect(text).toMatch(/↳ feature-build · opus · \d+:\d\d · Running npm test/)
     expect(text).toContain('Idle: lead L1')
+    expect(text).not.toContain('Flow ·')
   })
-  it('keeps decisions on top in every view', () => {
-    for (const v of ['grid', 'swim', 'tree', 'agents'] as const) {
+  it('Flow ends each lane with where its branch stands on merging', () => {
+    const s = snap()
+    s.git = [{ repoPath: '/r', base: 'origin/develop', fetchedAt: 't', worktrees: [{ path: '/w', branch: 'feat/42-x', head: 'a', ticket: 42, ahead: 3, behind: 1, dirty: false }] }]
+    s.trackers[0]!.changes = [{ number: 88, title: 't', head: 'feat/42-x', base: 'develop', state: 'open', draft: false, mergeable: 'mergeable', checks: 'success', url: 'u', ticket: 42 }]
+    const text = render(s, 140, { color: false }, now.getTime(), 'flow').join('\n')
+    expect(text).toContain('Flow · last')
+    expect(text).toMatch(/L1 .*▏PR #88 · behind 1/)
+    // Under the lane: its local worktree.
+    expect(text).toContain('└ feat/42-x · 3 ahead · 1 behind · clean · → merges develop in first')
+    expect(text).not.toContain('Product phases')
+  })
+  it('keeps decisions on top in both views', () => {
+    for (const v of ['now', 'flow'] as const) {
       expect(render(snap(), 100, { color: false }, now.getTime(), v).join('\n')).toContain('Needs your decision (1)')
     }
   })

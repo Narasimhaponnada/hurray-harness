@@ -46,6 +46,9 @@ function lane(r: Json, steps: string[]): LaneRow {
     skill: cur?.skill,
     doing: cur?.status === 'running' ? cur?.detail : undefined,
     attempt: Number(cur?.attempt ?? 1),
+    since: cur?.status === 'running' && cur?.startedAt ? Date.parse(cur.startedAt) : undefined,
+    used: cur?.status === 'running' ? cur?.tokens?.used : undefined,
+    budget: cur?.status === 'running' ? cur?.tokens?.budget : undefined,
   }
 }
 
@@ -80,7 +83,7 @@ export function summarize(state: Json, url: string, now: number): Summary {
       .map((w: Json) => {
         const pr = changes.find((c) => c.head === w.branch && c.state === 'open') ?? changes.find((c) => c.head === w.branch)
         const lane = (live.rows ?? []).find((r: Json) => r.ticket === w.ticket)?.lane
-        return { branch: String(w.branch), ahead: Number(w.ahead ?? 0), behind: Number(w.behind ?? 0), pr: pr?.number, checks: pr?.checks, conflict: pr?.mergeable === 'conflicting', merged: pr?.state === 'merged', dirty: !!w.dirty, lane }
+        return { branch: String(w.branch), ahead: Number(w.ahead ?? 0), behind: Number(w.behind ?? 0), pr: pr?.number, checks: pr?.checks, conflict: pr?.mergeable === 'conflicting', merged: pr?.state === 'merged', dirty: !!w.dirty, lane, lastCommitAt: w.lastCommitAt ? Date.parse(w.lastCommitAt) : undefined }
       }),
   )
   const decisions: Json[] = live.decisions ?? []
@@ -134,15 +137,11 @@ export const GLYPH: Record<Cell, string> = { done: '✓', running: '●', failed
 
 // ---------- rotation: the pane's views take turns in the same space ----------
 
-export const VIEWS: readonly PaneView[] = ['grid', 'swim', 'tree', 'agents']
-export const VIEW_NAME: Record<PaneView, string> = { grid: 'grid', swim: 'swimlanes', tree: 'worktrees', agents: 'agents' }
+export const VIEWS: readonly PaneView[] = ['now', 'flow']
+export const VIEW_NAME: Record<PaneView, string> = { now: 'now', flow: 'flow' }
 
 export function availableViews(s: Summary): PaneView[] {
-  const out: PaneView[] = ['grid']
-  if (s.segments.length) out.push('swim')
-  if (s.worktrees.length) out.push('tree')
-  if (s.agents.length || s.idle.length) out.push('agents')
-  return out
+  return s.segments.length || s.worktrees.length ? ['now', 'flow'] : ['now']
 }
 
 export function rotation(startMs: number, nowMs: number, periodSec: number, list: readonly PaneView[]): { view: PaneView; next: PaneView; remainingSec: number } {

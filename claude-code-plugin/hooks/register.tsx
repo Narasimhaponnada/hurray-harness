@@ -8,7 +8,8 @@ import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, VIEW_NAME, availableViews, mmss, r
 //   - a status line: stage, busy lanes, what needs you, milestone progress
 //   - a band above the prompt whenever something needs you
 //   - a lanes pane beside the chat (/lanes): decisions on top, then the grid, swimlanes and worktree
-//     graph and the agents and skills view taking turns every HH_ROTATE seconds (default 120), with buttons to pin one
+//     two views taking turns every HH_ROTATE seconds: Now (phases, skills, grid, agents) and Flow
+//     (swimlanes with each lane's merge state) (default 120), with buttons to pin one
 // Read-only: it only fetches the hub's /api/state.
 
 const PANE = 'hh-lanes'
@@ -122,6 +123,12 @@ export const register: Register = (on) => {
         </Box>
       )
     }
+    const nowMs = await $.clock.now()
+    const kt = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
+    const meter = (used: number, budget: number) => {
+      const n = Math.round(Math.min(100, (used / budget) * 100) / 20)
+      return '█'.repeat(n) + '░'.repeat(5 - n) + ` ${kt(used)}/${kt(budget)}`
+    }
     const bar = (n: number, of: number, width = 20) => {
       const fill = of ? Math.round((n / of) * width) : 0
       return '█'.repeat(fill) + '░'.repeat(width - fill)
@@ -160,7 +167,13 @@ export const register: Register = (on) => {
                 <Text mono dimColor>{fit(r.lane ?? '', labelW - 1, false)}</Text>
                 {r.cells.map((c, i) => chip('b' + i, c, narrow(r.words[i]?.[1] ?? '', cw), cw))}
               </Box>
-              {r.doing ? <Text dimColor>{' '.repeat(labelW)}↳ {[r.skill, r.model].filter(Boolean).join(' · ')}{r.skill || r.model ? ' · ' : ''}{r.doing}</Text> : null}
+              {r.doing ? (
+                <Box flexDirection="row">
+                  <Text dimColor>{' '.repeat(labelW)}↳ {[r.skill, r.model, r.since ? mmss(Math.max(0, Math.round((nowMs - r.since) / 1000))) : ''].filter(Boolean).join(' · ')} · </Text>
+                  {r.used && r.budget ? <Text color={r.used / r.budget >= 0.8 ? 'warning' : '#85B7EB'}>{meter(r.used, r.budget)} </Text> : null}
+                  <Text dimColor>{r.doing}</Text>
+                </Box>
+              ) : null}
             </Box>
           ))}
         </Box>
@@ -171,50 +184,95 @@ export const register: Register = (on) => {
     // Which view to show now: a pinned one, or the turn of the rotation.
     const period = Number((await $.env.get('HH_ROTATE')) ?? 120)
     const vs = (await read($, view)) as ViewState | null
-    const nowMs = await $.clock.now()
     const avail = availableViews(s)
     const rot = rotation(vs?.start ?? 0, nowMs, Number.isFinite(period) ? period : 120, avail)
     const shown: PaneView = vs?.pinned ?? rot.view
     const footer = vs?.pinned ? `${VIEW_NAME[shown]} · pinned` : rot.next === rot.view ? VIEW_NAME[shown] : `${VIEW_NAME[shown]} · ${VIEW_NAME[rot.next]} in ${mmss(rot.remainingSec)}`
 
-    // Swimlanes: one row per lane across time, runs of the same step drawn as one colored bar.
-    const swim = () => {
+    // Flow: swimlanes, each lane's row ending with where its branch stands on merging.
+    const mergeOf = (ticket?: number) => {
+      const w = s.worktrees.find((x) => ticket != null && x.branch.match(new RegExp('(^|/)' + ticket + '[-_/]')))
+      if (!w) return undefined
+      if (w.merged) return { tail: `PR #${w.pr} merged`, color: '#AFA9EC' }
+      if (w.conflict) return { tail: `PR #${w.pr} ✗ conflict`, color: 'error' }
+      if (w.pr && w.checks === 'failure') return { tail: `PR #${w.pr} ✗ checks red`, color: 'error' }
+      if (w.pr && w.behind > 0) return { tail: `PR #${w.pr} · behind ${w.behind}`, color: 'warning' }
+      if (w.pr && w.checks === 'success') return { tail: `PR #${w.pr} ✓ merging`, color: 'success' }
+      if (w.pr) return { tail: `PR #${w.pr} ◌ checks`, color: '#85B7EB' }
+      return { tail: w.ahead ? 'no PR yet' : 'no commits yet', color: undefined }
+    }
+    // Under each lane: its local worktree (branch, ahead and behind, uncommitted changes, last commit, way in).
+    const localLine = (w: Summary['worktrees'][number]) => {
+      const base = (s.base ?? 'base').replace(/^origin\//, '')
+      const mins = w.lastCommitAt ? Math.max(0, Math.round((nowMs - w.lastCommitAt) / 60_000)) : undefined
+      const committed = mins == null ? '' : mins < 1 ? 'committed just now' : mins < 60 ? `committed ${mins} min ago` : `committed ${Math.floor(mins / 60)} h ago`
+      const way = w.merged ? `merged into ${base}` : w.conflict ? `merges ${base} in to fix the conflict` : w.pr && w.behind ? `merges ${base} in first` : w.pr && w.checks === 'success' ? `merges into ${base} when checks pass` : !w.pr && w.ahead ? 'not pushed yet' : ''
+      return (
+        <Box flexDirection="row">
+          <Text mono dimColor>{'     └ '}</Text>
+          <Text mono color={w.conflict ? 'error' : w.behind ? 'warning' : 'success'}>{w.branch}</Text>
+          <Text mono dimColor> · {w.ahead} ahead · </Text>
+          <Text mono color={w.behind ? 'warning' : undefined} dimColor={!w.behind}>{w.behind} behind</Text>
+          <Text mono dimColor> · </Text>
+          <Text mono color={w.dirty ? 'warning' : undefined} dimColor={!w.dirty}>{w.dirty ? 'uncommitted changes' : 'clean'}</Text>
+          <Text mono dimColor>{committed ? ' · ' + committed : ''}{way ? ' · → ' + way : ''}</Text>
+        </Box>
+      )
+    }
+    const flow = () => {
       const segs = s.segments
+      // Lanes from the steps, plus worktrees whose lane has no recent step.
+      const laneTicket = new Map<string, number | undefined>()
+      for (const g of segs) laneTicket.set(g.lane, g.ticket ?? laneTicket.get(g.lane))
+      for (const w of s.worktrees) {
+        const t = Number(w.branch.match(/(?:^|\/)(\d+)[-_/]/)?.[1])
+        if (!Number.isFinite(t)) continue
+        const lane = w.lane ?? '#' + t
+        if (!laneTicket.has(lane)) laneTicket.set(lane, t)
+      }
       const recent = segs.map((g) => g.start)
       const earliest = recent.length ? Math.min(...recent) : nowMs - 60_000
       const mins = [1, 2, 5, 15, 60, 240].find((m) => nowMs - earliest <= m * 60_000 * 0.95) ?? 240
       const t0 = nowMs - mins * 60_000
       const LW = 16
-      const T = Math.max(20, cols - LW - 2)
+      const RW = 26
+      const T = Math.max(20, cols - LW - RW - 2)
       const x = (t: number) => Math.min(T - 1, Math.max(0, Math.floor(((t - t0) / (nowMs - t0)) * (T - 1))))
-      const lanes = [...new Set(segs.map((g) => g.lane))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      const lanes = [...laneTicket.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
       return (
         <Box flexDirection="column" marginTop={1}>
-          <Text weight="medium">Swimlanes · last {mins >= 60 ? mins / 60 + ' h' : mins + ' min'} · each bar is one step, colored by agent</Text>
+          <Text weight="medium">Flow · last {mins >= 60 ? mins / 60 + ' h' : mins + ' min'}{s.base ? ' · base ' + s.base : ''} · each bar is one step, colored by agent; each lane ends with its merge state</Text>
           {lanes.map((lane) => {
             const mine = segs.filter((g) => g.lane === lane)
+            const ticket = [...mine].reverse().find((g) => g.ticket != null)?.ticket ?? laneTicket.get(lane)
             const who = [...mine].reverse().find((g) => g.role && g.role !== 'coordinator' && g.role !== 'lead')?.role ?? mine.at(-1)?.role
             const cells: { bg?: string; ch: string }[] = Array.from({ length: T }, () => ({ ch: '·' }))
             for (const g of mine) {
               const a = x(Math.max(g.start, t0))
-              const b = Math.max(a, x(g.end ?? nowMs))
+              // A finished step stops one column short, so neighbouring steps stay apart.
+              const b = Math.max(a, x(g.end ?? nowMs) - (g.end ? 1 : 0))
               const bg = g.status === 'failed' ? '#A32D2D' : g.status === 'skipped' ? undefined : ROLE_BG[g.role ?? ''] ?? '#444441'
               const text = ((STEP_LABEL[g.step] ?? g.step) + (g.ticket ? ' #' + g.ticket : '')).slice(0, b - a + 1)
               for (let c = a; c <= b; c++) cells[c] = { bg, ch: text[c - a] ?? ' ' }
             }
-            // Merge neighbouring cells of one colour into one piece of text.
             const runs: { bg?: string; text: string }[] = []
             for (const c of cells) {
               const last = runs.at(-1)
               if (last && last.bg === c.bg) last.text += c.ch
               else runs.push({ bg: c.bg, text: c.ch })
             }
+            const m = mergeOf(ticket)
+            const w = s.worktrees.find((x) => ticket != null && x.branch.match(new RegExp('(^|/)' + ticket + '[-_/]')))
             return (
-              <Box key={lane} flexDirection="row">
+              <Box key={lane} flexDirection="column">
+              <Box flexDirection="row">
                 <Text mono weight="medium">{fit(lane, 5, false)}</Text>
-                <Text mono dimColor>{fit(ROLE_NAME[who ?? ''] ?? who ?? '', LW - 5, false)} </Text>
+                <Text mono dimColor>{fit(ROLE_NAME[who ?? ''] ?? who ?? (ticket ? '#' + ticket : ''), LW - 5, false)} </Text>
                 {runs.map((r, i) => r.bg ? <Text key={String(i)} mono color="#F1EFE8" backgroundColor={r.bg}>{r.text}</Text> : <Text key={String(i)} mono dimColor>{r.text}</Text>)}
                 <Text mono color="error">▏</Text>
+                {m ? <Text mono color={m.color}>{m.tail}</Text> : null}
+              </Box>
+              {w ? localLine(w) : null}
               </Box>
             )
           })}
@@ -224,81 +282,24 @@ export const register: Register = (on) => {
             ))}
             <Text mono><Text backgroundColor="#A32D2D">{'  '}</Text> failed</Text>
           </Box>
+          <Text dimColor>└ each lane's local worktree: branch, ahead and behind the base, uncommitted changes, last commit, way in</Text>
         </Box>
       )
     }
 
-    // Worktrees to merge: each lane's branch off the base, its commits, PR, checks and way into the base.
-    const tree = () => {
-      const base = (s.base ?? 'base').replace(/^origin\//, '')
-      const nameW = Math.min(30, Math.max(14, ...s.worktrees.map((w) => w.branch.length)))
-      return (
-        <Box flexDirection="column" marginTop={1}>
-          <Text weight="medium">Worktrees to merge · work reaches the base only through a PR</Text>
-          <Text mono color="#AFA9EC">{'━'.repeat(Math.max(10, cols - (s.base ?? '').length - 12))} {s.base ?? ''}{s.baseHead ? ' ' + s.baseHead : ''}</Text>
-          {s.worktrees.map((w, i) => {
-            const col = w.conflict ? 'error' : w.behind ? 'warning' : 'success'
-            const n = Math.min(w.ahead, 10)
-            const commits = Array.from({ length: n }, () => '●').join('━') + (w.ahead > 10 ? '…' : '')
-            const into = w.merged ? `merged into ${base}` : w.conflict ? `lane merges ${base} in, fixes, re-runs checks` : w.behind && w.pr ? `behind ${w.behind}: merges ${base} in first` : w.pr && w.checks === 'success' ? `merges into ${base} when checks pass` : 'waiting'
-            const checks = !w.pr ? '' : w.conflict ? '✗ conflict' : w.checks === 'success' ? '✓ checks green' : w.checks === 'failure' ? '✗ checks red' : w.checks === 'pending' ? '◌ checks running' : 'no checks'
-            return (
-              <Box key={w.branch} flexDirection="row">
-                <Text mono color="#AFA9EC">{i === s.worktrees.length - 1 ? ' ┗━' : ' ┣━'}</Text>
-                <Text mono color={col}>{fit('━' + commits, 22, false)}</Text>
-                <Text mono color={col}>{fit(w.branch, nameW, false)} </Text>
-                <Text mono dimColor>+{w.ahead} −{w.behind}{w.dirty ? ' ✎' : ''}{w.lane ? ' ' + w.lane : ''}  </Text>
-                <Text mono>▶ {w.pr ? 'PR #' + w.pr : w.ahead ? 'no PR yet' : 'no commits yet'}  </Text>
-                <Text mono color={w.conflict || w.checks === 'failure' ? 'error' : w.checks === 'success' ? 'success' : undefined}>{checks}  </Text>
-                <Text mono dimColor>→ {into}</Text>
-              </Box>
-            )
-          })}
-        </Box>
-      )
-    }
-
-    // Agents and skills: the skills in use and who runs them, then one row per running agent.
-    const agentsView = () => {
+    // Now: skills running, then (after the grid) idle agents.
+    const skillsLine = () => {
       const bySkill = new Map<string, string[]>()
-      for (const a of s.agents) {
-        const k = a.skill ?? '(no skill reported)'
-        bySkill.set(k, [...(bySkill.get(k) ?? []), `${ROLE_NAME[a.role] ?? a.role}${a.lane ? ' ' + a.lane : ''}`])
-      }
-      const age = (ms: number) => { const sec = Math.max(0, Math.round((nowMs - ms) / 1000)); return mmss(sec) }
-      const k = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
-      const wide = cols >= 110
+      for (const a of s.agents) bySkill.set(a.skill ?? 'no skill', [...(bySkill.get(a.skill ?? 'no skill') ?? []), `${ROLE_NAME[a.role] ?? a.role}${a.lane ? ' ' + a.lane : ''}`])
+      if (!bySkill.size) return null
       return (
-        <Box flexDirection="column" marginTop={1}>
-          <Text weight="medium">Agents and skills · {s.agents.length} running · {s.idle.reduce((a, r) => a + Math.max(1, r.lanes.length), 0)} idle</Text>
-          {[...bySkill].map(([skill, who]) => (
-            <Box key={skill} flexDirection="row">
-              <Text mono color="#AFA9EC">{fit(skill, 18, false)} </Text>
-              <Text mono>{who.length} · {who.join(', ')}</Text>
-            </Box>
-          ))}
-          <Box flexDirection="row" marginTop={1}>
-            <Text mono dimColor>{fit('Lane', 5, false)} {fit('Agent', 14, false)} {wide ? fit('Model', 7, false) + ' ' : ''}{fit('Skill', 15, false)} {fit('Ticket', 7, false)} {fit('Step', 16, false)} {fit('For', 6, false)} {wide ? fit('Budget', 15, false) + ' ' : ''}Doing now</Text>
-          </Box>
-          {s.agents.map((a, i) => {
-            const pct = a.used && a.budget ? Math.round((a.used / a.budget) * 100) : undefined
-            const n = pct == null ? 0 : Math.round(Math.min(pct, 100) / 20)
-            return (
-              <Box key={String(i)} flexDirection="row">
-                <Text mono weight="medium">{fit(a.lane ?? '', 5, false)} </Text>
-                <Text mono color={ROLE_BG[a.role] ?? '#888780'}>■ </Text>
-                <Text mono>{fit(ROLE_NAME[a.role] ?? a.role, 12, false)} {wide ? fit(a.model ?? '', 7, false) + ' ' : ''}</Text>
-                <Text mono color="#AFA9EC">{fit(a.skill ?? '', 15, false)} </Text>
-                <Text mono>{fit(a.ticket ? '#' + a.ticket : '', 7, false)} {fit((a.step ?? '') + (a.attempt > 1 ? ` (recode ${a.attempt})` : ''), 16, false)} {fit(age(a.since), 6, false)} </Text>
-                {wide ? (pct == null ? <Text mono dimColor>{fit('–', 15, false)} </Text> : <Text mono color={pct >= 80 ? 'warning' : '#85B7EB'}>{'█'.repeat(n) + '░'.repeat(5 - n)} {fit(`${k(a.used!)}/${k(a.budget!)}`, 9, false)} </Text>) : null}
-                <Text dimColor>{a.doing ?? ''}</Text>
-              </Box>
-            )
-          })}
-          {s.idle.length ? <Box marginTop={1}><Text dimColor>Idle: {s.idle.map((r) => `${ROLE_NAME[r.role] ?? r.role}${r.lanes.length ? ' ' + r.lanes.join(',') : ''}`).join(' · ')}</Text></Box> : null}
+        <Box flexDirection="row" gap={1}>
+          <Text weight="medium">Skills running</Text>
+          {[...bySkill].map(([k, who]) => <Text key={k}><Text color="#AFA9EC">{k}</Text> ×{who.length} <Text dimColor>({who.join(', ')})</Text></Text>)}
         </Box>
       )
     }
+    const idleLine = () => (s.idle.length ? <Box marginTop={1}><Text dimColor>Idle: {s.idle.map((r) => `${ROLE_NAME[r.role] ?? r.role}${r.lanes.length ? ' ' + r.lanes.join(',') : ''}`).join(' · ')}</Text></Box> : null)
 
     const pick = (v: PaneView | null) => update($, view, (prev) => ({ pinned: v, start: v ? prev?.start ?? nowMs : nowMs }))
     return (
@@ -313,7 +314,7 @@ export const register: Register = (on) => {
           </Box>
         ) : null}
 
-        {shown === 'grid' && s.phases.length ? (
+        {shown === 'now' && s.phases.length ? (
           <Box flexDirection="column" marginTop={1}>
             <Text weight="medium">Product phases</Text>
             <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('pn' + p.name, p.tone, p.name, pw))}</Box>
@@ -321,11 +322,11 @@ export const register: Register = (on) => {
             <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('ps' + p.name, p.tone, p.skill ?? '', pw))}</Box>
           </Box>
         ) : null}
-        {shown === 'grid' ? (s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : <Text dimColor>No lanes running.</Text>) : null}
-        {shown === 'grid' && s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
-        {shown === 'swim' ? swim() : null}
-        {shown === 'tree' ? tree() : null}
-        {shown === 'agents' ? agentsView() : null}
+        {shown === 'now' ? skillsLine() : null}
+        {shown === 'now' ? (s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : <Text dimColor>No lanes running.</Text>) : null}
+        {shown === 'now' && s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
+        {shown === 'now' ? idleLine() : null}
+        {shown === 'flow' ? flow() : null}
 
         <Box flexDirection="row" gap={1} marginTop={1}>
           {chip('l1', 'done', 'Done', 6)}{chip('l2', 'running', 'Working now', 13)}{chip('l3', 'failed', 'Failed, recode', 16)}
@@ -334,10 +335,8 @@ export const register: Register = (on) => {
         </Box>
         <Box flexDirection="row" gap={1} marginTop={1}>
           <Text dimColor>{footer}</Text>
-          <Button key="v-grid" label="Grid" onPress={() => pick('grid')} />
-          {avail.includes('swim') ? <Button key="v-swim" label="Swimlanes" onPress={() => pick('swim')} /> : null}
-          {avail.includes('tree') ? <Button key="v-tree" label="Worktrees" onPress={() => pick('tree')} /> : null}
-          {avail.includes('agents') ? <Button key="v-agents" label="Agents" onPress={() => pick('agents')} /> : null}
+          <Button key="v-now" label="Now" onPress={() => pick('now')} />
+          {avail.includes('flow') ? <Button key="v-flow" label="Flow" onPress={() => pick('flow')} /> : null}
           {vs?.pinned ? <Button key="v-rotate" label="Rotate" onPress={() => pick(null)} /> : null}
         </Box>
       </Box>

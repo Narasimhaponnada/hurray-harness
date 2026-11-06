@@ -59,13 +59,22 @@ hh watch --rotate 90   # your own interval in seconds (or HH_ROTATE, or rotateSe
 hh watch --once        # print everything once, for scripts and CI logs
 ```
 
-To keep it small, the decisions stay on top while the **grid**, the **swimlanes**, the **worktree graph** and **agents and skills** take turns in the same space below. The footer says what is showing and what comes next (`grid · swimlanes in 1:24`). Keys: `g` `s` `w` `a` pin a view (grid, swimlanes, worktrees, agents), `e` shows everything, `r` resumes rotating, `↑↓` scroll, `q` quits. Data refreshes every 2 seconds in every view. It works in any terminal (Cursor, VS Code, iTerm, tmux) and fits its width.
+To keep it small, the decisions stay on top while two views take turns in the space below, so nothing is ever more than one interval away. The footer says what is showing and what comes next (`now · flow in 1:24`). Keys: `n` Now, `f` Flow, `b` both, `r` resume rotating, `↑↓` scroll, `q` quit. Data refreshes every 2 seconds in both views. It works in any terminal (Cursor, VS Code, iTerm, tmux) and fits its width.
 
-![Terminal views taking turns](docs/terminal-rotation.png)
+**Now** shows what is happening and who is doing it:
+- the phase strip, with a **Skills running** line under it, for example `feature-build ×3 (coordinator L1, ui aligner L2, developer L3)`;
+- the ticket grid, with each cell's status and agent;
+- under each running ticket, a `↳` line with the skill, model, time on the step, budget meter, and what the agent is doing now;
+- the idle agents, on one line.
 
-**Agents and skills** lists each skill in use with the agents running it. Under that, each running agent gets a row: lane, role, model, skill, ticket, step (with recode count), time on the step, budget used, and what it is doing now. Idle agents fit on one line. On a narrow terminal the budget, model, time and skill columns drop in that order.
+![Now view](docs/terminal-now.png)
 
-![Agents and skills view](docs/terminal-agents.png)
+**Flow** shows how the work moves and where each lane stands on merging:
+- swimlanes, one row per lane, with each step a bar colored by agent role and failures in red;
+- each lane's row ends with its PR state: `✓ merging`, `· behind 1`, `✗ conflict`, `no PR yet`;
+- under each lane, a `└` line for its local worktree: branch, ahead and behind the base, clean or uncommitted changes, the last commit, and its way into the base.
+
+![Flow view](docs/terminal-flow.png)
 
 ## Inside Claude Code: always on screen
 
@@ -79,7 +88,7 @@ Answer `y` to add the marketplace and pick a scope (user, for every session). Wi
 
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **A band above the prompt** whenever something needs you, with a toast when a new decision appears. **Hide** dismisses the band until the next new decision.
-- **A lanes pane beside the chat** (`/lanes`). What needs you stays on top. Below it, the colored grid (phases, and each ticket's steps with the agent in each cell and what it is doing now), the swimlanes, the worktree graph and agents and skills take turns every `HH_ROTATE` seconds (default 120). Buttons pin a view or resume rotating.
+- **A lanes pane beside the chat** (`/lanes`). What needs you stays on top. Below it, the same **Now** and **Flow** views take turns every `HH_ROTATE` seconds (default 120). **Now** and **Flow** buttons pin one; **Rotate** resumes.
 
 ![Claude Code lanes pane](docs/claude-code-pane.png)
 

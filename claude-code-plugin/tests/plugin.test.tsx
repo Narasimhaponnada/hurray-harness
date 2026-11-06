@@ -70,7 +70,8 @@ test('the pane draws each lane, its agent and what it is doing, on every surface
     // The grid: a cell's status on top and its agent below, and what the agent is doing under the row.
     expect((await ui.find({ type: 'Text', text: /recode 2/ }))?.text?.trim()).toBe('recode 2')
     expect((await ui.findAll({ type: 'Text', text: /^\s*developer\s*$/ })).length).toBeGreaterThan(0)
-    expect(await ui.find({ type: 'Text', text: /↳ feature-build · sonnet · Edit src\/api\/list\.ts/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /↳ feature-build · sonnet/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /Edit src\/api\/list\.ts/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /Needs your decision \(1\)/ })).toBeTruthy()
     await ui.unmount()
   }
@@ -86,7 +87,8 @@ test('the phase strip marks the running phase as waiting on you while a decision
   await $.command.run(RUN_LANES)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /waits on you/ })).toBeTruthy()
-  expect((await ui.findAll({ type: 'Text', text: /^\s*feature-build\s*$/ })).length).toBe(1)
+  // Once in the phase strip (Build) and once in the skills-running line.
+  expect((await ui.findAll({ type: 'Text', text: /^\s*feature-build\s*$/ })).length).toBe(2)
   await ui.unmount()
 })
 
@@ -101,30 +103,29 @@ test('a hub that is not running says how to start it', async ($, on) => {
   await ui.unmount()
 })
 
-test('the views take turns, a button pins one, and decisions stay on top', async ($, on) => {
+test('Now and Flow take turns, a button pins one, and decisions stay on top', async ($, on) => {
   engine(on, 'up', { status: [], toasts: [] })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.command.run(RUN_LANES)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // The grid first, saying what comes next.
-  expect(await ui.find({ type: 'Text', text: /grid · swimlanes in/ })).toBeTruthy()
-  // Pin the swimlanes.
-  await ui.press({ key: 'v-swim' })
-  expect(await ui.find({ type: 'Text', text: /Swimlanes · last/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /swimlanes · pinned/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /Needs your decision/ })).toBeTruthy()
-  // Pin the worktrees: the branch, its counts, its PR and its way into the base.
-  await ui.press({ key: 'v-tree' })
-  expect(await ui.find({ type: 'Text', text: /feat\/42-x/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /▶ PR #88/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /behind 1: merges develop in first/ })).toBeTruthy()
-  // Pin the agents: the skill in use, who runs it, and each running agent's row.
-  await ui.press({ key: 'v-agents' })
-  expect(await ui.find({ type: 'Text', text: /Agents and skills · 1 running · 1 idle/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /1 · developer L1/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /code \(recode 2\)/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /100k\/120k/ })).toBeTruthy()
+  // Now first: skills running, the grid with model, time and budget on the running line, idle agents.
+  expect(await ui.find({ type: 'Text', text: /now · flow in/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Skills running/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /\(developer L1\)/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /████░ 100k\/120k/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Idle: lead L1/ })).toBeTruthy()
+  // Pin Flow: swimlanes, each lane ending with its merge state.
+  await ui.press({ key: 'v-flow' })
+  expect(await ui.find({ type: 'Text', text: /Flow · last .* base origin\/develop/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /PR #88 · behind 1/ })).toBeTruthy()
+  // Under the lane: its local worktree.
+  expect(await ui.find({ type: 'Text', text: /^feat\/42-x$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: / · 3 ahead · / })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^1 behind$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /merges develop in first/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /flow · pinned/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Needs your decision/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Skills running/ })).toBeFalsy()
   // Back to rotating.
   await ui.press({ key: 'v-rotate' })
   expect(await ui.find({ type: 'Text', text: /pinned/ })).toBeFalsy()

@@ -68,7 +68,7 @@ function gated(phases: PhaseState[], decisions: Decision[]): Set<string> {
   return out
 }
 
-export type View = 'all' | 'grid' | 'swim' | 'tree' | 'agents'
+export type View = 'all' | 'now' | 'flow'
 
 export function render(snap: Snapshot, width: number, s: Style = { color: true }, now = Date.now(), view: View = 'all'): string[] {
   const W = Math.max(60, width)
@@ -98,10 +98,9 @@ export function render(snap: Snapshot, width: number, s: Style = { color: true }
     out.push('')
   }
 
-  if (view === 'all' || view === 'grid') out.push(...gridSection(snap, W, s, now))
-  if (view === 'all' || view === 'swim') out.push(...swimlanes(snap, W, s, now))
-  if (view === 'all' || view === 'tree') out.push(...worktreeGraph(snap, W, s))
-  if (view === 'all' || view === 'agents') out.push(...agentsView(snap, W, s, now))
+  // Two views: Now (what is happening and who is doing it) and Flow (how work moves and where it stands on merging).
+  if (view === 'all' || view === 'now') out.push(...nowView(snap, W, s, now))
+  if (view === 'all' || view === 'flow') out.push(...flowView(snap, W, s, now))
 
   // Legend
   const key = (t: Tone, label: string) => paint(s, t, '  ') + ' ' + label
@@ -110,7 +109,7 @@ export function render(snap: Snapshot, width: number, s: Style = { color: true }
   return out
 }
 
-function gridSection(snap: Snapshot, W: number, s: Style, now: number): string[] {
+function nowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
   const out: string[] = []
   const decisions = snap.live.decisions
   // Phases strip: two lines per box, the gate under it.
@@ -122,6 +121,14 @@ function gridSection(snap: Snapshot, W: number, s: Style, now: number): string[]
   out.push(phases.map((p) => paint(s, toneP(p), fit(p.name, pw))).join(' '))
   out.push(phases.map((p) => paint(s, toneP(p), fit(gates.has(p.name) ? 'waits on you' : PHASE_WORD[p.status] ?? p.status, pw))).join(' '))
   out.push(phases.map((p) => paint(s, toneP(p), fit(p.skill ?? '', pw))).join(' '))
+  // Skills running now, with who runs them: one line under the phases.
+  const busy = snap.live.agents.filter((a) => a.status === 'busy')
+  if (busy.length) {
+    const bySkill = new Map<string, string[]>()
+    for (const a of busy) bySkill.set(a.skill ?? 'no skill', [...(bySkill.get(a.skill ?? 'no skill') ?? []), `${role(a.role)}${laneOfKey(a.key) ? ' ' + laneOfKey(a.key) : ''}`])
+    const line = [...bySkill].map(([k, who]) => fg(s, 183, k) + ` ×${who.length} ` + dim(s, '(' + who.join(', ') + ')')).join('   ')
+    out.push(bold(s, 'Skills running ') + (visible(line) <= W - 15 ? line : [...bySkill].map(([k, who]) => fg(s, 183, k) + ` ×${who.length}`).join('   ')))
+  }
   out.push('')
 
   // Ticket grids
@@ -150,8 +157,15 @@ function gridSection(snap: Snapshot, W: number, s: Style, now: number): string[]
       out.push(dim(s, fit(sub, labelW, 'left')) + cells.map((c) => ' ' + paint(s, c.tone, fit(c.bottom, cw))).join(''))
       // What the agent is doing now, under the row, when something runs.
       const cur = r.current ? r.steps[r.current] : undefined
-      if (cur?.status === 'running' && cur.detail) {
-        out.push(' '.repeat(labelW) + ' ' + dim(s, fit(`↳ ${[cur.skill, cur.agent?.model].filter(Boolean).join(' · ')}${cur.skill || cur.agent?.model ? ' · ' : ''}${cur.detail}`, W - labelW - 1, 'left')))
+      if (cur?.status === 'running') {
+        // The running agent in one line: skill, model, time on the step, budget, what it is doing now.
+        const t = cur.tokens
+        const pct = t?.used && t?.budget ? Math.round((t.used / t.budget) * 100) : undefined
+        const n = pct == null ? 0 : Math.round(Math.min(pct, 100) / 20)
+        const meter = pct == null ? '' : fg(s, pct >= 80 ? 214 : 75, '█'.repeat(n) + '░'.repeat(5 - n)) + dim(s, ` ${kTok(t!.used!)}/${kTok(t!.budget!)} · `)
+        const lead = dim(s, '↳ ' + [cur.skill, cur.agent?.model, cur.startedAt ? since(cur.startedAt, now) : ''].filter(Boolean).join(' · ') + ' · ')
+        const room = W - labelW - 1 - visible(lead) - visible(meter)
+        out.push(' '.repeat(labelW) + ' ' + lead + meter + dim(s, fit(cur.detail ?? '', Math.max(0, room), 'left').trimEnd()))
       } else {
         out.push('')
       }
@@ -160,8 +174,22 @@ function gridSection(snap: Snapshot, W: number, s: Style, now: number): string[]
   }
   if (!rows.length) out.push(dim(s, 'No agent steps yet. Lanes appear when a harness sends steps (hh step) or a tool hook ties activity to a worktree.'), '')
 
+  // Idle agents on one line.
+  const idle = snap.live.agents.filter((a) => a.status !== 'busy')
+  if (idle.length) {
+    const byRole = new Map<string, string[]>()
+    for (const a of idle) byRole.set(a.role, [...(byRole.get(a.role) ?? []), laneOfKey(a.key)])
+    out.push(dim(s, fit('Idle: ' + [...byRole].map(([r, ls]) => `${role(r)}${ls.filter(Boolean).length ? ' ' + ls.filter(Boolean).join(',') : ''}`).join(' · '), W, 'left').trimEnd()), '')
+  }
   return out
 }
+
+const since = (iso: string, now: number) => {
+  const sec = Math.max(0, Math.round((now - Date.parse(iso)) / 1000))
+  return sec < 3600 ? mmss(sec) : `${Math.floor(sec / 3600)}h${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`
+}
+const kTok = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
+const laneOfKey = (key: string) => { const l = key.split(':').at(-2); return l && l !== '-' ? l : '' }
 
 // ---------- swimlanes: one row per lane across time, each step a bar colored by the agent's role ----------
 
@@ -172,25 +200,100 @@ const ROLE_BG: Record<string, number> = {
 const roleBg = (r?: string) => (r && ROLE_BG[r]) || 59
 const WINDOWS = [1, 2, 5, 15, 60, 240]
 
-export function swimlanes(snap: Snapshot, W: number, s: Style, now: number): string[] {
+// Where a lane's worktree stands on its way into the base, in one short phrase.
+function mergeState(snap: Snapshot, ticket: number | undefined, s: Style): { text: string; plain: string } | undefined {
+  if (ticket == null) return undefined
+  const wt = snap.git.flatMap((g) => g.worktrees).find((w) => w.ticket === ticket)
+  const tracker = snap.trackers[0]
+  const branch = wt?.branch
+  const pr = tracker?.changes.find((c) => (branch ? c.head === branch : c.ticket === ticket) && c.state === 'open') ?? tracker?.changes.find((c) => (branch ? c.head === branch : c.ticket === ticket))
+  if (!wt && !pr) return undefined
+
+  let tail: string
+  let color: number
+  if (pr?.state === 'merged') { tail = `PR #${pr.number} merged`; color = 141 }
+  else if (pr?.mergeable === 'conflicting') { tail = `PR #${pr.number} ✗ conflict`; color = 210 }
+  else if (pr?.checks === 'failure') { tail = `PR #${pr.number} ✗ checks red`; color = 210 }
+  else if (pr && wt && wt.behind > 0) { tail = `PR #${pr.number} · behind ${wt.behind}`; color = 222 }
+  else if (pr?.checks === 'success') { tail = `PR #${pr.number} ✓ merging`; color = 114 }
+  else if (pr) { tail = `PR #${pr.number} ◌ checks`; color = 117 }
+  else { tail = wt && wt.ahead ? 'no PR yet' : 'no commits yet'; color = 245 }
+  return { plain: tail, text: fg(s, color, tail) }
+}
+
+// The lane's local worktree in one line: branch, ahead and behind the base, uncommitted changes, last commit,
+// and the way into the base in words.
+function localLine(snap: Snapshot, ticket: number | undefined, s: Style, now: number, width: number): string | undefined {
+  if (ticket == null) return undefined
+  const g = snap.git.find((x) => x.worktrees.some((w) => w.ticket === ticket))
+  const wt = g?.worktrees.find((w) => w.ticket === ticket)
+  if (!g || !wt) return undefined
+  const base = g.base.replace(/^origin\//, '')
+  const tracker = snap.trackers[0]
+  const pr = tracker?.changes.find((c) => c.head === wt.branch && c.state === 'open') ?? tracker?.changes.find((c) => c.head === wt.branch)
+  const conflict = pr?.mergeable === 'conflicting'
+  const committed = (iso?: string) => {
+    if (!iso) return ''
+    const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000))
+    return m < 1 ? 'committed just now' : m < 60 ? `committed ${m} min ago` : `committed ${Math.floor(m / 60)} h ago`
+  }
+  const way = pr?.state === 'merged' ? `merged into ${base}`
+    : conflict ? `merges ${base} in to fix the conflict`
+    : pr && wt.behind ? `merges ${base} in first`
+    : pr?.checks === 'success' ? `merges into ${base} when checks pass`
+    : !pr && wt.ahead ? 'not pushed yet' : ''
+  // Most important first; the line drops parts from the end until it fits.
+  const parts = [
+    fg(s, conflict ? 210 : wt.behind ? 222 : 114, wt.branch),
+    `${wt.ahead} ahead · ` + (wt.behind ? fg(s, 222, `${wt.behind} behind`) : '0 behind'),
+    wt.dirty ? fg(s, 222, 'uncommitted changes') : 'clean',
+    committed(wt.lastCommitAt),
+    way ? '→ ' + way : '',
+  ].filter(Boolean)
+  while (parts.length > 2 && visible(dim(s, '└ ') + parts.join(dim(s, ' · '))) > width) parts.pop()
+  const line = dim(s, '└ ') + parts.join(dim(s, ' · '))
+  return visible(line) <= width ? line : dim(s, fit(line.replace(/\x1b\[[0-9;]*m/g, ''), width, 'left').trimEnd())
+}
+
+export function flowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
   const out: string[] = []
   const segs = snap.live.segments
-  if (!segs.length) return out
-  // The smallest window that holds every step from the last 4 hours, so short runs are not squeezed.
+  const rows = snap.live.rows
+  // Lanes come from the steps and from the worktrees, so a lane with a branch but no recent step still shows.
+  const laneTicket = new Map<string, number | undefined>()
+  for (const g of segs) laneTicket.set(g.lane, g.ticket ?? laneTicket.get(g.lane))
+  for (const w of snap.git.flatMap((g) => g.worktrees)) {
+    if (w.ticket == null) continue
+    const lane = rows.find((r) => r.ticket === w.ticket)?.lane ?? '#' + w.ticket
+    if (!laneTicket.has(lane)) laneTicket.set(lane, w.ticket)
+  }
+  // The ticket a lane is on now is the one in its latest step.
+  for (const lane of laneTicket.keys()) {
+    const last = [...segs].reverse().find((g) => g.lane === lane && g.ticket != null)
+    if (last) laneTicket.set(lane, last.ticket)
+  }
+  if (!laneTicket.size) return out
+
   const recent = segs.map((g) => Date.parse(g.start)).filter((t) => t >= now - 240 * 60_000)
   const earliest = recent.length ? Math.min(...recent) : now - 60_000
   const mins = WINDOWS.find((m) => now - earliest <= m * 60_000 * 0.95) ?? WINDOWS[WINDOWS.length - 1]!
   const t0 = now - mins * 60_000
   const visibleSegs = segs.filter((g) => (g.end ? Date.parse(g.end) : now) >= t0)
-  if (!visibleSegs.length) return out
-  const lanes = [...new Set(visibleSegs.map((g) => g.lane))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const lanes = [...laneTicket.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const states = new Map(lanes.map((l) => [l, mergeState(snap, laneTicket.get(l), s)]))
   const LW = 16
-  const T = Math.max(20, W - LW - 2)
+  const RW = Math.min(26, Math.max(12, ...[...states.values()].map((m) => (m ? m.plain.length : 0)))) + 2
+  const T = Math.max(20, W - LW - 1 - RW - 1)
   const x = (t: number) => Math.min(T - 1, Math.max(0, Math.floor(((t - t0) / (now - t0)) * (T - 1))))
   const clock = (t: number) => new Date(t).toLocaleTimeString([], mins <= 5 ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
+  const base = snap.git[0]
 
-  out.push(bold(s, `Swimlanes · last ${mins >= 60 ? mins / 60 + ' h' : mins + ' min'}`) + dim(s, ' · each bar is one step, colored by agent'))
-  // Time axis: four ticks and "now" at the right edge.
+  // The title says as much as the width allows.
+  const titleBits = [`Flow · last ${mins >= 60 ? mins / 60 + ' h' : mins + ' min'}`, base ? ' · base ' + base.base : '', ' · each bar is one step, colored by agent; each lane ends with where its branch stands']
+  let title = bold(s, titleBits[0]!)
+  if (base && visible(title) + titleBits[1]!.length <= W) title += dim(s, ' · base ') + fg(s, 141, base.base)
+  if (visible(title) + titleBits[2]!.length <= W) title += dim(s, titleBits[2]!)
+  out.push(title)
   const axis = Array<string>(T).fill(' ')
   for (let i = 0; i < 4; i++) {
     const t = t0 + ((now - t0) * i) / 4
@@ -199,93 +302,56 @@ export function swimlanes(snap: Snapshot, W: number, s: Style, now: number): str
     for (let j = 0; j < label.length && at + j < T - 4; j++) axis[at + j] = label[j]!
   }
   'now'.split('').forEach((c, j) => (axis[T - 3 + j] = c))
-  out.push(' '.repeat(LW + 1) + dim(s, axis.join('')))
+  out.push(' '.repeat(LW + 1) + dim(s, axis.join('')) + ' ' + dim(s, fit('Merge', RW, 'left')))
 
   for (const lane of lanes) {
     const mine = visibleSegs.filter((g) => g.lane === lane)
-    const lastRole = [...mine].reverse().find((g) => g.role && g.role !== 'coordinator' && g.role !== 'lead')?.role ?? mine.at(-1)?.role
-    // Each column takes the colour and text of the step that covers it; later steps win.
+    const ticket = laneTicket.get(lane)
+    const who = [...mine].reverse().find((g) => g.role && g.role !== 'coordinator' && g.role !== 'lead')?.role ?? mine.at(-1)?.role
     const cells: { bg?: number; ch: string; run?: boolean }[] = Array.from({ length: T }, () => ({ ch: '·' }))
     for (const g of mine) {
       const a = x(Math.max(Date.parse(g.start), t0))
-      const b = Math.max(a, x(g.end ? Date.parse(g.end) : now))
+      // A finished step stops one column short, so neighbouring steps stay apart.
+      const b = Math.max(a, x(g.end ? Date.parse(g.end) : now) - (g.end ? 1 : 0))
       const bg = g.status === 'failed' ? 52 : g.status === 'skipped' ? undefined : roleBg(g.role)
       const text = ((STEP_LABELS[g.step] ?? g.step) + (g.ticket ? ' #' + g.ticket : '')).slice(0, b - a + 1)
       for (let c = a; c <= b; c++) cells[c] = { bg, ch: text[c - a] ?? ' ', run: !g.end }
       if (g.status === 'skipped') for (let c = a; c <= b; c++) cells[c] = { ch: '-' }
     }
-    let row = ''
-    for (const c of cells) {
-      if (c.bg == null) row += dim(s, c.ch)
-      else row += esc(s, `48;5;${c.bg};38;5;${c.run ? 231 : 253}`) + (c.run ? esc(s, '1') : '') + c.ch + reset(s)
-    }
-    out.push(bold(s, fit(lane, 5, 'left')) + dim(s, fit(role(lastRole), LW - 5, 'left')) + ' ' + row + fg(s, 203, '▏'))
+    let bar = ''
+    for (const c of cells) bar += c.bg == null ? dim(s, c.ch) : esc(s, `48;5;${c.bg};38;5;${c.run ? 231 : 253}`) + (c.run ? esc(s, '1') : '') + c.ch + reset(s)
+    const label = bold(s, fit(lane, 5, 'left')) + dim(s, fit(role(who) || (ticket ? '#' + ticket : ''), LW - 5, 'left'))
+    const m = states.get(lane)
+    out.push(label + ' ' + bar + fg(s, 203, '▏') + (m ? m.text : ''))
+    // Under the lane: its local worktree.
+    const local = localLine(snap, ticket, s, now, W - 5)
+    if (local) out.push(' '.repeat(5) + local)
   }
+  // Role colours, then what the merge phrases mean, wrapped to the width.
   const roles = [...new Set(visibleSegs.map((g) => g.role).filter((r): r is string => !!r))]
   const items = [...roles.map((r) => esc(s, `48;5;${roleBg(r)}`) + '  ' + reset(s) + ' ' + role(r)), esc(s, '48;5;52') + '  ' + reset(s) + ' failed', dim(s, 'bold: running')]
-  // The legend wraps onto as many lines as the width needs.
   let line = ''
   for (const it of items) {
     if (line && visible(line) + 2 + visible(it) > W - LW - 1) { out.push(' '.repeat(LW + 1) + line); line = '' }
     line += (line ? '  ' : '') + it
   }
   if (line) out.push(' '.repeat(LW + 1) + line)
-  out.push('')
-  return out
-}
-
-// ---------- worktrees to merge: each lane's branch off the base, its commits, PR, checks and merge ----------
-
-export function worktreeGraph(snap: Snapshot, W: number, s: Style): string[] {
-  const out: string[] = []
-  const tracker = snap.trackers[0]
-  for (const g of snap.git) {
-    if (g.error) { out.push(fg(s, 210, `${g.repoPath}: ${g.error}`), ''); continue }
-    const base = g.base.replace(/^origin\//, '')
-    const lanes = g.worktrees.filter((w) => w.branch !== base && !w.branch.endsWith('/' + base))
-    if (!lanes.length) continue
-    const rows = snap.live.rows
-    out.push(bold(s, 'Worktrees to merge') + dim(s, ' · work reaches the base only through a PR'))
-    out.push(fg(s, 141, '━'.repeat(Math.max(10, W - visible(g.base) - 12))) + ' ' + bold(s, fg(s, 141, g.base)) + dim(s, g.baseHead ? ' ' + g.baseHead : ''))
-    const DOTS = 10
-    const nameW = Math.min(30, Math.max(14, ...lanes.map((w) => w.branch.length)))
-    lanes.forEach((w, i) => {
-      const pr = tracker?.changes.find((c) => c.head === w.branch && c.state === 'open') ?? tracker?.changes.find((c) => c.head === w.branch)
-      const conflict = pr?.mergeable === 'conflicting'
-      const merged = pr?.state === 'merged'
-      const col = conflict ? 210 : w.behind ? 222 : 114
-      const stem = i === lanes.length - 1 ? ' ┗━' : ' ┣━'
-      const n = Math.min(w.ahead, DOTS)
-      const commits = Array.from({ length: n }, () => '●').join('━') + (w.ahead > DOTS ? '…' : '')
-      const graph = fg(s, 141, stem) + fg(s, col, '━' + commits) + ' '.repeat(Math.max(1, DOTS * 2 + 2 - (commits.length + 1)))
-      const lane = rows.find((r) => r.ticket === w.ticket)?.lane
-      const counts = dim(s, `+${w.ahead} −${w.behind}${w.dirty ? ' ✎' : ''}${lane ? ' ' + lane : ''}`)
-      const prPart = pr ? `PR #${pr.number}` : w.ahead ? 'not pushed or no PR' : 'no commits yet'
-      const checks = !pr ? '' : conflict ? fg(s, 210, '✗ conflict') : pr.checks === 'success' ? fg(s, 114, '✓ checks green') : pr.checks === 'failure' ? fg(s, 210, '✗ checks red') : pr.checks === 'pending' ? fg(s, 117, '◌ checks running') : dim(s, 'no checks')
-      const into = merged ? fg(s, 141, `merged into ${base}`)
-        : conflict ? fg(s, 210, `lane merges ${base} in, fixes, re-runs checks`)
-        : w.behind && pr ? fg(s, 222, `behind ${w.behind}: merges ${base} in first`)
-        : pr && pr.checks === 'success' ? fg(s, 117, `merges into ${base} when checks pass`)
-        : dim(s, 'waiting')
-      const line = graph + fg(s, col, fit(w.branch, nameW, 'left')) + ' ' + counts + '  ▶ ' + prPart + '  ' + checks + '  → ' + into
-      if (visible(line) <= W) out.push(line)
-      else {
-        // Too wide for one line: the way into the base goes on its own line, under the PR.
-        const first = graph + fg(s, col, fit(w.branch, nameW, 'left')) + ' ' + counts + '  ▶ ' + prPart + '  ' + checks
-        out.push(first)
-        out.push(fg(s, 141, i === lanes.length - 1 ? '   ' : ' ┃ ') + ' '.repeat(Math.max(0, visible(graph) - 3 + nameW + 1)) + '→ ' + into)
-      }
-    })
-    out.push(dim(s, '  Lanes never merge into each other locally: each pushes its branch, opens a PR, and the tracker merges it.'))
-    out.push('')
+  // What the merge phrases mean, wrapped to the width.
+  const key = ['└ each lane\'s local worktree: branch, ahead and behind the base, uncommitted changes, last commit, way in']
+  let kl = ''
+  for (const k of key) {
+    if (kl && LW + 1 + kl.length + 3 + k.length > W) { out.push(' '.repeat(LW + 1) + dim(s, kl)); kl = '' }
+    kl += (kl ? ' · ' : '') + k
   }
+  if (kl) out.push(' '.repeat(LW + 1) + dim(s, fit(kl, W - LW - 1, 'left').trimEnd()))
+  out.push('')
   return out
 }
 
 // ---------- rotation: the views take turns in the same space ----------
 
-export const ROTATION: readonly View[] = ['grid', 'swim', 'tree', 'agents']
-export const VIEW_NAME: Record<View, string> = { all: 'everything', grid: 'grid', swim: 'swimlanes', tree: 'worktrees', agents: 'agents' }
+export const ROTATION: readonly View[] = ['now', 'flow']
+export const VIEW_NAME: Record<View, string> = { all: 'both', now: 'now', flow: 'flow' }
 
 // Which view shows at `now`, given when rotation started and its period. Views with nothing to show are
 // skipped (no steps yet: no swimlanes; no worktrees: no graph), so the space never shows an empty view.
@@ -301,90 +367,10 @@ export function rotation(startMs: number, nowMs: number, periodSec: number, avai
 
 // The views worth rotating through for this snapshot.
 export function availableViews(snap: Snapshot): View[] {
-  const out: View[] = ['grid']
-  if (snap.live.segments.length) out.push('swim')
-  if (snap.git.some((g) => g.worktrees.some((w) => w.ticket != null))) out.push('tree')
-  if (snap.live.agents.length) out.push('agents')
+  const out: View[] = ['now']
+  if (snap.live.segments.length || snap.git.some((g) => g.worktrees.some((w) => w.ticket != null))) out.push('flow')
   return out
 }
 
 export const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`
 
-// ---------- agents and skills: who is running, which skill, on what, for how long, against what budget ----------
-
-const since = (iso: string, now: number) => {
-  const sec = Math.max(0, Math.round((now - Date.parse(iso)) / 1000))
-  return sec < 3600 ? mmss(sec) : `${Math.floor(sec / 3600)}h${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`
-}
-const STEP_WORD: Record<string, string> = { plan: 'plan', code: 'code', tests: 'tests, docs', check: 'check', pr: 'PR', review: 'review', merge: 'merge', close: 'close', 'qa-plan': 'QA plan', 'cycle-open': 'open cycle', run: 'run tests', 'second-look': '2nd look', 'file-bugs': 'file bugs', verify: 'verify', 'cycle-close': 'close cycle', 'sign-off': 'sign-off' }
-const kTok = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
-
-export function agentsView(snap: Snapshot, W: number, s: Style, now: number): string[] {
-  const out: string[] = []
-  const agents = snap.live.agents
-  if (!agents.length) return out
-  const busy = agents.filter((a) => a.status === 'busy')
-  const idle = agents.filter((a) => a.status !== 'busy')
-  const laneOf = (key: string) => { const l = key.split(':').at(-2); return l && l !== '-' ? l : '' }
-  // What the agent is doing and its budget come from the step it is running.
-  const stepOf = (a: (typeof agents)[number]) => {
-    const row = snap.live.rows.find((r) => r.ticket === a.ticket && (!laneOf(a.key) || r.lane === laneOf(a.key)))
-    return a.step ? row?.steps[a.step] : undefined
-  }
-  out.push(bold(s, `Agents and skills · ${busy.length} running · ${idle.length} idle`))
-
-  // Skills in use, each with the agents running it.
-  const bySkill = new Map<string, string[]>()
-  for (const a of busy) {
-    const k = a.skill ?? '(no skill reported)'
-    bySkill.set(k, [...(bySkill.get(k) ?? []), `${role(a.role)}${laneOf(a.key) ? ' ' + laneOf(a.key) : ''}`])
-  }
-  if (bySkill.size) {
-    const sw = Math.min(24, Math.max(10, ...[...bySkill.keys()].map((k) => k.length)))
-    out.push(dim(s, fit('Skill', sw, 'left') + '  Running it'))
-    for (const [k, who] of bySkill) out.push(fg(s, 183, fit(k, sw, 'left')) + '  ' + fit(`${who.length} · ${who.join(', ')}`, W - sw - 2, 'left').trimEnd())
-    out.push('')
-  }
-
-  // One row per running agent. On a narrow terminal the least needed columns go first.
-  if (busy.length) {
-    type Col = { id: string; h: string; w: number; cell: (a: (typeof agents)[number]) => string }
-    let cols: Col[] = [
-      { id: 'lane', h: 'Lane', w: 5, cell: (a) => bold(s, fit(laneOf(a.key), 5, 'left')) },
-      { id: 'agent', h: 'Agent', w: 14, cell: (a) => esc(s, `38;5;${roleBg(a.role)}`) + '■ ' + reset(s) + fit(role(a.role), 12, 'left') },
-      { id: 'model', h: 'Model', w: 7, cell: (a) => fit(a.model ?? '', 7, 'left') },
-      { id: 'skill', h: 'Skill', w: 15, cell: (a) => fg(s, 183, fit(a.skill ?? '', 15, 'left')) },
-      { id: 'ticket', h: 'Ticket', w: 7, cell: (a) => fit(a.ticket ? '#' + a.ticket : '', 7, 'left') },
-      { id: 'step', h: 'Step', w: 16, cell: (a) => { const st = stepOf(a); return fit((STEP_WORD[a.step ?? ''] ?? a.step ?? '') + (st && st.attempt > 1 ? ` (recode ${st.attempt})` : ''), 16, 'left') } },
-      { id: 'for', h: 'For', w: 6, cell: (a) => fit(since(a.since, now), 6, 'left') },
-      { id: 'budget', h: 'Budget', w: 15, cell: (a) => {
-        const t = stepOf(a)?.tokens
-        const pct = t?.used && t?.budget ? Math.round((t.used / t.budget) * 100) : undefined
-        if (pct == null) return dim(s, fit('–', 15, 'left'))
-        const n = Math.round(Math.min(pct, 100) / 20)
-        return fg(s, pct >= 80 ? 214 : 75, '█'.repeat(n) + '░'.repeat(5 - n)) + ' ' + fit(`${kTok(t!.used!)}/${kTok(t!.budget!)}`, 9, 'left')
-      } },
-    ]
-    for (const drop of ['budget', 'model', 'for', 'skill']) {
-      if (cols.reduce((a, c) => a + c.w + 1, 0) + 12 <= W) break
-      cols = cols.filter((c) => c.id !== drop)
-    }
-    const doingW = Math.max(0, W - cols.reduce((a, c) => a + c.w + 1, 0))
-    out.push(dim(s, cols.map((c) => fit(c.h, c.w, 'left')).join(' ') + (doingW > 0 ? ' ' + fit('Doing now', doingW, 'left').trimEnd() : '')))
-    for (const a of busy) {
-      const doing = stepOf(a)?.detail ?? ''
-      out.push(cols.map((c) => c.cell(a)).join(' ') + (doingW > 0 ? ' ' + dim(s, fit(doing, doingW, 'left').trimEnd()) : ''))
-    }
-    out.push('')
-  }
-
-  // Idle agents, by role, on one line.
-  if (idle.length) {
-    const byRole = new Map<string, string[]>()
-    for (const a of idle) byRole.set(a.role, [...(byRole.get(a.role) ?? []), laneOf(a.key)])
-    const line = 'Idle: ' + [...byRole].map(([r, ls]) => `${role(r)}${ls.filter(Boolean).length ? ' ' + ls.filter(Boolean).join(',') : ''}`).join(' · ')
-    out.push(dim(s, fit(line, W, 'left').trimEnd()))
-    out.push('')
-  }
-  return out
-}
