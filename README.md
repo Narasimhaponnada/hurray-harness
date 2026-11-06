@@ -51,6 +51,17 @@ With nothing else connected you already get the GitHub view, every worktree's pa
 hh step --ticket 42 --lane L1 --step check --agent developer -- npm test
 ```
 
+## In any terminal
+
+```bash
+hh watch          # the same view, live and full screen; q quits
+hh watch --once   # print it once, for scripts and CI logs
+```
+
+It works in any terminal (Cursor, VS Code, iTerm, tmux), fits its width, and redraws every 2 seconds.
+
+![Terminal view](docs/terminal.png)
+
 ## Inside Claude Code: always on screen
 
 Install the plugin once, at the prompt of a Claude Code session:
@@ -63,7 +74,9 @@ Answer `y` to add the marketplace and pick a scope (user, for every session). Wi
 
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **A band above the prompt** whenever something needs you, with a toast when a new decision appears. **Hide** dismisses the band until the next new decision.
-- **A lanes pane beside the chat** (`/lanes`). It shows milestone progress, what needs you, and each lane's steps as `✓ ● ✗ ! ·`, with the step, recode count, agent, model, skill and what the agent is doing now. Worktrees are listed with ahead and behind counts, their PR and checks.
+- **A lanes pane beside the chat** (`/lanes`). It shows the same colored grid: what needs you, the phase strip with skills, and each ticket's steps with the agent in each cell. The line under each running ticket shows the skill, model and what the agent is doing now, and worktrees are listed with ahead and behind counts, their PR and checks.
+
+![Claude Code lanes pane](docs/claude-code-pane.png)
 
 It reads the hub at `http://127.0.0.1:7311`. Set `HH_URL` to point it elsewhere.
 

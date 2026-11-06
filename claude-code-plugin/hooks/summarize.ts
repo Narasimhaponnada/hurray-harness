@@ -14,6 +14,20 @@ type Json = Record<string, any>
 const CELLS: Cell[] = ['done', 'running', 'failed', 'blocked', 'skipped', 'waiting']
 const cell = (s?: string): Cell => (CELLS.includes(s as Cell) ? (s as Cell) : 'waiting')
 
+const ROLE: Record<string, string> = { 'associate-developer': 'assoc dev', 'ui-aligner': 'ui aligner', 'design-auditor': 'design aud', 'qa-lead': 'QA lead', 'release-lead': 'rel lead' }
+const WORD: Record<string, string> = { done: 'done', running: 'working', failed: 'failed', blocked: 'blocked', waiting: '', skipped: 'none' }
+
+function words(step: string, st: Json | undefined, pr?: number): [string, string] {
+  if (!st) return ['–', '']
+  let top = WORD[st.status] ?? String(st.status)
+  const files: string[] = st.files ?? []
+  if (st.status === 'running' && Number(st.attempt) > 1) top = 'recode ' + st.attempt
+  else if (st.status === 'done' && step === 'pr' && pr) top = '#' + pr
+  else if (st.status === 'done' && step === 'tests') top = files.some((f) => /adr/i.test(f)) ? 'ADR' : files.some((f) => /(^|\/)docs?\//.test(f) || f.endsWith('.md')) ? 'docs' : 'tests'
+  const role: string | undefined = st.agent?.role
+  return [top, st.status === 'skipped' || !role ? '' : ROLE[role] ?? role]
+}
+
 function lane(r: Json, steps: string[]): LaneRow {
   const stepMap: Json = r.steps ?? {}
   const cur: Json | undefined = (r.current && stepMap[r.current]) || Object.values(stepMap).at(-1)
@@ -25,6 +39,7 @@ function lane(r: Json, steps: string[]): LaneRow {
     title: r.title,
     kind: r.kind === 'qa' ? 'test' : 'build',
     cells: steps.map((s) => (stepMap[s] ? cell(stepMap[s].status) : 'waiting')),
+    words: steps.map((s) => words(s, stepMap[s], r.pr)),
     step: cur?.step ? STEP_LABEL[cur.step] ?? cur.step : undefined,
     agent: cur?.agent?.role ?? builder?.role,
     model: cur?.agent?.model ?? builder?.model,
@@ -50,8 +65,22 @@ export function summarize(state: Json, url: string, now: number): Summary {
         return { branch: String(w.branch), ahead: Number(w.ahead ?? 0), behind: Number(w.behind ?? 0), pr: pr?.number, checks: pr?.checks, conflict: pr?.mergeable === 'conflicting' }
       }),
   )
+  const decisions: Json[] = live.decisions ?? []
+  const approval = (d: Json) => String(d.id).endsWith(':approval')
+  const phasesIn: Json[] = live.phases ?? []
+  const gated = new Set<string>()
+  if (decisions.some(approval)) {
+    const nxt = phasesIn.find((p) => (p.name === 'Promote' || p.name === 'Release') && p.status !== 'done')
+    if (nxt) gated.add(nxt.name)
+  }
+  if (decisions.some((d) => !approval(d))) for (const p of phasesIn) if (p.status === 'running') gated.add(p.name)
+  const PW: Record<string, string> = { done: 'done', running: 'now', waiting: 'waiting', failed: 'failed', blocked: 'waits on you', skipped: 'skipped' }
+  const phases = phasesIn.map((p) => ({
+    name: String(p.name), tone: (gated.has(p.name) ? 'blocked' : cell(p.status)) as Cell,
+    word: gated.has(p.name) ? 'waits on you' : PW[p.status] ?? String(p.status), skill: p.skill,
+  }))
   return {
-    ok: true, at: now, url,
+    ok: true, at: now, url, phases,
     repo: tracker?.repo ?? run?.repo,
     milestone: tracker?.milestone?.title ?? run?.milestone,
     stage: run?.status === 'running' ? run?.stage : undefined,

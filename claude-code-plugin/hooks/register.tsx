@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Cell, LaneRow, Summary } from '../types'
-import { BUILD_STEPS, GLYPH, STEP_LABEL, TEST_STEPS, statusLine, summarize } from './summarize.ts'
+import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, statusLine, summarize } from './summarize.ts'
 
 // hurray-harness for Claude Code: reads the local hub (hh start) every few seconds and shows
 //   - a status line: stage, busy lanes, what needs you, milestone progress
@@ -15,7 +15,15 @@ const POLL_MS = 4000
 const summary = atom({ plugin: 'hurray-harness', key: 'summary' } as const, null, { shape: 'summary-1' })
 const bandHidden = atom({ plugin: 'hurray-harness', key: 'bandHidden' } as const, false)
 
-const CELL_COLOR: Record<Cell, string> = { done: 'success', running: 'suggestion', failed: 'error', blocked: 'warning', skipped: 'subtle', waiting: 'subtle' }
+// Cell colors: a dark chip with light text, readable on dark and light themes.
+const TONE: Record<Cell, { bg: string; fg: string }> = {
+  done: { bg: '#27500A', fg: '#C0DD97' },
+  running: { bg: '#0C447C', fg: '#B5D4F4' },
+  failed: { bg: '#791F1F', fg: '#F7C1C1' },
+  blocked: { bg: '#633806', fg: '#FAC775' },
+  skipped: { bg: '#2C2C2A', fg: '#888780' },
+  waiting: { bg: '#2C2C2A', fg: '#888780' },
+}
 
 let timer: Timer | undefined
 let seen = new Set<string>()
@@ -107,18 +115,47 @@ export const register: Register = (on) => {
       const fill = of ? Math.round((n / of) * width) : 0
       return '█'.repeat(fill) + '░'.repeat(width - fill)
     }
-    const row = (r: LaneRow) => (
-      <Box key={r.key} flexDirection="column" marginBottom={1}>
-        <Box flexDirection="row" gap={1}>
-          <Text mono weight="medium">{(r.lane ?? '').padEnd(3)} #{r.ticket}</Text>
-          <Text mono>{r.cells.map((c, i) => <Text key={String(i)} color={CELL_COLOR[c]}>{GLYPH[c]}</Text>)}</Text>
-          <Text>{r.step ?? ''}{r.attempt > 1 ? ` (recode ${r.attempt})` : ''}</Text>
-          <Text dimColor>{[r.agent, r.model, r.skill].filter(Boolean).join(' · ')}</Text>
-        </Box>
-        <Text dimColor>{'      '}{r.title ?? ''}{r.doing ? ' · ' + r.doing : ''}</Text>
-      </Box>
+    // Fixed-width colored cells, sized to the pane: the same grid as the browser dashboard.
+    const cols = Math.max(60, e.props.bodyColumns ?? 100)
+    const fit = (t: string, w: number, center = true) => {
+      const v = t.length > w ? t.slice(0, Math.max(0, w - 1)) + '…' : t
+      if (!center) return v + ' '.repeat(w - v.length)
+      const l = Math.floor((w - v.length) / 2)
+      return ' '.repeat(l) + v + ' '.repeat(w - v.length - l)
+    }
+    const chip = (key: string, c: Cell, text: string, w: number, center = true) => (
+      <Text key={key} mono color={TONE[c].fg} backgroundColor={TONE[c].bg}>{fit(text, w, center)}</Text>
     )
-    const legend = (steps: string[]) => steps.map((x) => STEP_LABEL[x] ?? x).join(' › ')
+    // In a narrow pane, agent names shrink rather than lose their ends.
+    const SHORT: Record<string, string> = { developer: 'dev', coordinator: 'coord', architect: 'arch', 'ui aligner': 'ui align', 'assoc dev': 'assoc', 'design aud': 'design', designer: 'design' }
+    const narrow = (t: string, w: number) => (t.length > w ? SHORT[t] ?? t : t)
+    const labelW = Math.min(20, Math.max(12, Math.floor(cols * 0.17)))
+    const grid = (title: string, steps: string[], rows: LaneRow[]) => {
+      const cw = Math.max(7, Math.floor((cols - labelW - steps.length) / steps.length))
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text weight="medium">{title}</Text>
+          <Box flexDirection="row" gap={1}>
+            <Text mono>{' '.repeat(labelW - 1)}</Text>
+            {steps.map((st) => <Text key={st} mono dimColor>{fit(STEP_LABEL[st] ?? st, cw)}</Text>)}
+          </Box>
+          {rows.map((r) => (
+            <Box key={r.key} flexDirection="column" marginBottom={r.doing ? 0 : 1}>
+              <Box flexDirection="row" gap={1}>
+                <Text mono weight="medium">{fit(`#${r.ticket} ${r.title ?? ''}`, labelW - 1, false)}</Text>
+                {r.cells.map((c, i) => chip('t' + i, c, r.words[i]?.[0] ?? '', cw))}
+              </Box>
+              <Box flexDirection="row" gap={1}>
+                <Text mono dimColor>{fit(r.lane ?? '', labelW - 1, false)}</Text>
+                {r.cells.map((c, i) => chip('b' + i, c, narrow(r.words[i]?.[1] ?? '', cw), cw))}
+              </Box>
+              {r.doing ? <Text dimColor>{' '.repeat(labelW)}↳ {[r.skill, r.model].filter(Boolean).join(' · ')}{r.skill || r.model ? ' · ' : ''}{r.doing}</Text> : null}
+            </Box>
+          ))}
+        </Box>
+      )
+    }
+    const pw = Math.max(9, Math.floor((cols - (s.phases.length - 1)) / Math.max(1, s.phases.length)))
     return (
       <Box flexDirection="column">
         <Text weight="medium">{[s.repo, s.milestone ? 'milestone ' + s.milestone : '', s.stage].filter(Boolean).join(' · ')}</Text>
@@ -126,24 +163,22 @@ export const register: Register = (on) => {
 
         {s.decisions.length ? (
           <Box flexDirection="column" marginTop={1}>
-            <Text color="warning" weight="medium">Needs you ({s.decisions.length})</Text>
-            {s.decisions.map((d) => <Text key={d.id} color="warning">  {d.title}{d.why ? ' · ' + d.why : ''}</Text>)}
+            {chip('dh', 'blocked', ` Needs your decision (${s.decisions.length})`, cols, false)}
+            {s.decisions.slice(0, 4).map((d) => chip(d.id, 'blocked', `   ${d.title}${d.why ? ' · ' + d.why : ''}`, cols, false))}
           </Box>
         ) : null}
 
-        <Box flexDirection="column" marginTop={1}>
-          <Text weight="medium">Build lanes · {s.busy} busy</Text>
-          <Text dimColor>      {legend(BUILD_STEPS)}</Text>
-          {s.build.length ? s.build.map(row) : <Text dimColor>No lanes running.</Text>}
-        </Box>
-
-        {s.test.length ? (
-          <Box flexDirection="column">
-            <Text weight="medium">Test lanes</Text>
-            <Text dimColor>      {legend(TEST_STEPS)}</Text>
-            {s.test.map(row)}
+        {s.phases.length ? (
+          <Box flexDirection="column" marginTop={1}>
+            <Text weight="medium">Product phases</Text>
+            <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('pn' + p.name, p.tone, p.name, pw))}</Box>
+            <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('pw' + p.name, p.tone, p.word, pw))}</Box>
+            <Box flexDirection="row" gap={1}>{s.phases.map((p) => chip('ps' + p.name, p.tone, p.skill ?? '', pw))}</Box>
           </Box>
         ) : null}
+
+        {s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : <Text dimColor>No lanes running.</Text>}
+        {s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
 
         {s.worktrees.length ? (
           <Box flexDirection="column">
@@ -156,12 +191,16 @@ export const register: Register = (on) => {
           </Box>
         ) : null}
 
-        <Text dimColor>✓ done ● working ✗ failed ! needs you · not reached · full dashboard: {s.url}</Text>
+        <Box flexDirection="row" gap={1} marginTop={1}>
+          {chip('l1', 'done', 'Done', 6)}{chip('l2', 'running', 'Working now', 13)}{chip('l3', 'failed', 'Failed, recode', 16)}
+          {chip('l4', 'blocked', 'Needs you', 11)}{chip('l5', 'waiting', 'Not reached', 13)}
+          <Text dimColor>full dashboard: {s.url}</Text>
+        </Box>
       </Box>
     )
   })
 }
 
 function offline(url: string, error: string, at: number): Summary {
-  return { ok: false, error, at, url, done: 0, total: 0, busy: 0, decisions: [], build: [], test: [], worktrees: [] }
+  return { ok: false, error, at, url, done: 0, total: 0, busy: 0, decisions: [], phases: [], build: [], test: [], worktrees: [] }
 }

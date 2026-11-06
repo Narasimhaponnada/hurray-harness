@@ -16,6 +16,7 @@ const STATE = {
         },
       },
     ],
+    phases: [{ name: 'Plan', status: 'done' }, { name: 'Build', status: 'running', skill: 'feature-build' }, { name: 'Test', status: 'waiting' }],
     decisions: [{ id: 'd1', title: '#63 Choose tenancy model', why: 'Decision ticket', openedAt: 't', source: 'demo' }],
   },
   trackers: [{ repo: 'me/app', milestone: { title: '0.2' }, board: { Done: 4, Ready: 15 }, changes: [{ number: 88, head: 'feat/42-x', state: 'open', checks: 'success', mergeable: 'mergeable' }] }],
@@ -24,7 +25,7 @@ const STATE = {
 
 const PANE = {
   plugin: 'hurray-harness', component: 'Pane', requestId: 'hh-lanes',
-  props: { title: 'Agent lanes', isFocused: false, bodyColumns: 90, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  props: { title: 'Agent lanes', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
 function engine(on: On, hub: 'up' | 'down', seen: { status: (string | undefined)[]; toasts: string[] }) {
@@ -58,13 +59,28 @@ test('the pane draws each lane, its agent and what it is doing, on every surface
   await $.command.run(RUN_LANES)
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /recode 2/ }))?.text).toContain('code (recode 2)')
-    expect((await ui.find({ type: 'Text', text: /developer · sonnet · feature-build/ }))).toBeTruthy()
-    expect((await ui.find({ type: 'Text', text: /Edit src\/api\/list\.ts/ }))).toBeTruthy()
-    expect((await ui.find({ type: 'Text', text: /feat\/42-x \+3 −1 · PR #88 success/ }))).toBeTruthy()
-    expect((await ui.find({ type: 'Text', text: /Needs you \(1\)/ }))).toBeTruthy()
+    // The grid: a cell's status on top and its agent below, and what the agent is doing under the row.
+    expect((await ui.find({ type: 'Text', text: /recode 2/ }))?.text?.trim()).toBe('recode 2')
+    expect((await ui.findAll({ type: 'Text', text: /^\s*developer\s*$/ })).length).toBeGreaterThan(0)
+    expect(await ui.find({ type: 'Text', text: /↳ feature-build · sonnet · Edit src\/api\/list\.ts/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /feat\/42-x \+3 −1 · PR #88 success/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /Needs your decision \(1\)/ })).toBeTruthy()
     await ui.unmount()
   }
+  // A narrow pane keeps whole words: agent names shorten instead of being cut.
+  const slim = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 70 } })
+  expect((await slim.findAll({ type: 'Text', text: /^\s*dev\s*$/ })).length).toBeGreaterThan(0)
+  await slim.unmount()
+})
+
+test('the phase strip marks the running phase as waiting on you while a decision is open', async ($, on) => {
+  engine(on, 'up', { status: [], toasts: [] })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run(RUN_LANES)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /waits on you/ })).toBeTruthy()
+  expect((await ui.findAll({ type: 'Text', text: /^\s*feature-build\s*$/ })).length).toBe(1)
+  await ui.unmount()
 })
 
 test('a hub that is not running says how to start it', async ($, on) => {

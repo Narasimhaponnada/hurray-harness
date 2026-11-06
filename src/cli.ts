@@ -4,6 +4,7 @@ import { hostname, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { serve } from '@hono/node-server'
 import type { Snapshot } from './shared/types.js'
+import { render } from './tui.js'
 import { DEFAULT_PORT, loadConfig } from './hub/config.js'
 import { run } from './hub/exec.js'
 import { gitRemoteRepo, gitSnapshot } from './hub/git.js'
@@ -39,6 +40,9 @@ Usage
   hh step --ticket N --step NAME [--lane L1] [--agent developer] [--skill S] [--run ID] -- <command> [args]
       Run a command as one lane step: reports it started, then done or failed from its exit code.
       The command's output and exit code pass through unchanged. Works with any harness or script.
+  hh watch [--port ${DEFAULT_PORT}] [--once] [--no-color]
+      The dashboard in your terminal, live: phases, the ticket grid with the agent in each cell,
+      decisions and worktrees. Works in any terminal (Cursor, VS Code, iTerm, tmux). q quits.
   hh status [--port ${DEFAULT_PORT}]
       Print one line for a status bar: stage, busy lanes, what needs you, milestone progress.
       For Claude Code's statusLine setting, or tmux and shell prompts.
@@ -99,6 +103,42 @@ async function main(argv: string[]): Promise<number> {
       process.stderr.write(`hh emit: no hub on port ${port} (${(e as Error).message})\n`)
       return 1
     }
+  }
+
+  if (cmd === 'watch') {
+    const once = argv.includes('--once') || !process.stdout.isTTY
+    const style = { color: !argv.includes('--no-color') && !process.env.NO_COLOR && (process.stdout.isTTY || argv.includes('--color')) }
+    const url = `http://127.0.0.1:${port}/api/state`
+    const draw = async (): Promise<boolean> => {
+      let lines: string[]
+      let ok = true
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(2000) })
+        lines = render((await r.json()) as Snapshot, process.stdout.columns || 120, style)
+      } catch {
+        ok = false
+        lines = [`hurray-harness: no hub on port ${port}. Start it with: hh start`, '', 'Retrying every 2 s · q quits']
+      }
+      if (once) { process.stdout.write(lines.join('\n') + '\n'); return ok }
+      // Redraw in place on the alternate screen, clearing each line's tail.
+      process.stdout.write('\x1b[H' + lines.map((l) => l + '\x1b[K').join('\n') + '\x1b[J')
+      return ok
+    }
+    if (once) return (await draw()) ? 0 : 1
+    process.stdout.write('\x1b[?1049h\x1b[?25l')
+    const restore = () => process.stdout.write('\x1b[?25h\x1b[?1049l')
+    const quit = () => { restore(); process.exit(0) }
+    process.on('SIGINT', quit)
+    process.on('SIGTERM', quit)
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true)
+      process.stdin.resume()
+      process.stdin.on('data', (d) => { const k = d.toString(); if (k === 'q' || k === '\x03') quit() })
+    }
+    process.stdout.on('resize', () => void draw())
+    await draw()
+    setInterval(() => void draw(), 2000)
+    return new Promise<number>(() => {})
   }
 
   if (cmd === 'status') {
