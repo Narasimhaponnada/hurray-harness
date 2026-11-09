@@ -1,44 +1,58 @@
 name: Release
 
-# To release: npm version patch && git push --follow-tags
-# Or in the browser: Releases -> Draft a new release -> new tag vX.Y.Z on main -> Publish.
-# Every tag gets a GitHub release with the package attached. It is also published to npm once the
-# repository has an NPM_TOKEN secret (see docs/RELEASING.md).
+# Releases happen on their own: when main has a version in package.json that has no release yet,
+# this tests it, packs it, creates the GitHub release vX.Y.Z with the .tgz attached, and publishes it
+# to npm when the repository has an NPM_TOKEN secret. To release, bump the version and push to main.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write # the GitHub release
+  contents: write # the tag and the GitHub release
   id-token: write # npm provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     env:
+      GH_TOKEN: ${{ github.token }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # setup-node puts a placeholder in NODE_AUTH_TOKEN, so check the secret itself.
       HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Is this version released yet?
+        id: v
+        run: |
+          v="v$(node -p 'require("./package.json").version')"
+          echo "tag=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "$v" >/dev/null 2>&1; then
+            echo "new=false" >> "$GITHUB_OUTPUT"; echo "$v is already released."
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"; echo "$v is new: releasing it."
+          fi
       - uses: actions/setup-node@v4
+        if: steps.v.outputs.new == 'true'
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - name: Check the tag matches package.json
-        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
-      - run: npm pack
-      - name: Attach the package to the GitHub release (made here, or already made in the browser)
-        run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" hurray-harness-*.tgz --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - if: steps.v.outputs.new == 'true'
+        run: npm ci
+      - if: steps.v.outputs.new == 'true'
+        run: npm run typecheck
+      - if: steps.v.outputs.new == 'true'
+        run: npm test
+      - if: steps.v.outputs.new == 'true'
+        run: npm pack
+      - name: Create the GitHub release with the package
+        if: steps.v.outputs.new == 'true'
+        run: gh release create "${{ steps.v.outputs.tag }}" hurray-harness-*.tgz --target "$GITHUB_SHA" --title "${{ steps.v.outputs.tag }}" --generate-notes
       - name: Publish to npm
-        if: env.HAS_NPM_TOKEN == 'true'
+        if: steps.v.outputs.new == 'true' && env.HAS_NPM_TOKEN == 'true'
         run: npm publish ./hurray-harness-*.tgz --provenance --access public

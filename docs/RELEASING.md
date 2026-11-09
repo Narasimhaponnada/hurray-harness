@@ -1,6 +1,6 @@
 # Releasing
 
-Each version tag builds the package on GitHub, attaches it to a GitHub release, and publishes it to npm when an npm token is set.
+Each new version on `main` is released on its own: the package is built on GitHub, attached to a GitHub release, and published to npm when an npm token is set.
 
 ## Once: let GitHub publish to npm
 
@@ -14,14 +14,16 @@ After the first publish, you can replace the token with npm **trusted publishing
 
 ## Each release
 
+Releases happen on their own. Bump the version and push to `main`:
+
 ```bash
-npm version patch          # or minor / major: updates package.json and makes the tag
-git push --follow-tags     # the Release workflow does the rest
+npm version patch --no-git-tag-version   # or minor / major: updates package.json and the lock file
+git commit -am "Release 0.1.3" && git push
 ```
 
-Or, in the browser: **Releases → Draft a new release**, type a new tag such as `v0.1.1` on `main`, and **Publish release**. The tag must match the version in `package.json`.
+On every push to `main`, the Release workflow reads the version in `package.json`. When that version has no release yet, it checks the types, runs the tests, packs, creates the GitHub release `vX.Y.Z` with the `.tgz` attached, and publishes to npm with provenance (once the `NPM_TOKEN` secret exists). A push that leaves the version alone releases nothing.
 
-The workflow checks the types, runs the tests, checks that the tag matches `package.json`, packs, creates the GitHub release with the `.tgz` attached, then publishes to npm with provenance.
+To run it by hand: **Actions → Release → Run workflow**.
 
 ## Checks on every push
 
