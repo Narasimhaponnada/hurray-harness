@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # setup-node puts a placeholder in NODE_AUTH_TOKEN, so check the secret itself.
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,5 +40,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Publish to npm
-        if: env.NODE_AUTH_TOKEN != ''
+        if: env.HAS_NPM_TOKEN == 'true'
         run: npm publish ./hurray-harness-*.tgz --provenance --access public
