@@ -46,8 +46,15 @@ describe('hub api', () => {
 describe('hh step', () => {
   it('passes the exit code through and reports the step', async () => {
     const { spawnSync } = await import('node:child_process')
-    const r = spawnSync('npx', ['tsx', 'src/cli.ts', 'step', '--ticket', '9', '--step', 'check', '--port', '7999', '--', 'sh', '-c', 'echo hi; exit 3'], { encoding: 'utf8' })
+    const r = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'step', '--ticket', '9', '--step', 'check', '--port', '7999', '--', 'node', '-e', 'console.log("hi"); process.exit(3)'], { encoding: 'utf8' })
     expect(r.stdout).toContain('hi')
     expect(r.status).toBe(3)
   }, 30_000)
+
+  it('quotes a Windows command line for cmd.exe', async () => {
+    const { winCommandLine } = await import('../src/spawn.js')
+    expect(winCommandLine(['npm', 'test'])).toBe('npm test')
+    expect(winCommandLine(['node', '-e', 'console.log("a b")'])).toBe('node -e "console.log(""a b"")"')
+    expect(winCommandLine(['git', 'commit', '-m', 'fix & ship'])).toBe('git commit -m "fix & ship"')
+  })
 })

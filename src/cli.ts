@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { hostname, userInfo } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +16,7 @@ import { createReceiver } from './hub/receiver.js'
 import { TeamsNotifier, loadSecret } from './hub/teams.js'
 import { startTunnel } from './hub/tunnel.js'
 import { DecisionFeed, feedLine } from './feed.js'
+import { spawnCommand } from './spawn.js'
 
 function statusLine(s: Snapshot): string {
   const run = s.live.runs.find((r) => r.status === 'running')
@@ -218,7 +218,7 @@ async function main(argv: string[]): Promise<number> {
     const send = async (e: Record<string, unknown>) => { try { await post(port, '/api/events', JSON.stringify({ ...base, ...e }), 800) } catch { /* hub not running */ } }
     await send({ kind: 'step.start', detail: 'Running ' + command.join(' ').slice(0, 200) })
     const code = await new Promise<number>((resolve) => {
-      const child = spawn(command[0]!, command.slice(1), { stdio: 'inherit' })
+      const child = spawnCommand(command)
       child.on('error', (err) => { process.stderr.write(`hh step: ${err.message}\n`); resolve(127) })
       child.on('exit', (c, sig) => resolve(c ?? (sig ? 128 : 1)))
     })
