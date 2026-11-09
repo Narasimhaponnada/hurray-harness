@@ -8,7 +8,8 @@ import type { TrackerAdapter } from './index.js'
 // Read-only: only GraphQL queries, no mutations.
 
 const ISSUE_FIELDS_FULL = `
-  number title state url
+  number title state url updatedAt
+  assignees(first: 3) { nodes { login } }
   issueType { name }
   parent { number }
   labels(first: 20) { nodes { name } }
@@ -16,7 +17,8 @@ const ISSUE_FIELDS_FULL = `
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number state url } }`
 
 const ISSUE_FIELDS_LITE = `
-  number title state url
+  number title state url updatedAt
+  assignees(first: 3) { nodes { login } }
   labels(first: 20) { nodes { name } }
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number state url } }`
 
@@ -96,6 +98,8 @@ export function toWorkItem(n: Json, rules: LabelRules = DEFAULT_LABELS): WorkIte
   return {
     number: n.number, title: n.title, type: typeOf(n, labels), state: lower(n.state) === 'closed' ? 'closed' : 'open',
     status: deriveStatus(n.state, labels, prs, projectStatus, rules), labels, epic: n.parent?.number, url: n.url, prs,
+    assignees: (n.assignees?.nodes ?? []).map((a: Json) => a.login).filter(Boolean),
+    updatedAt: n.updatedAt,
   }
 }
 

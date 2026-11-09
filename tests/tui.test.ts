@@ -79,3 +79,39 @@ describe('two views', () => {
     }
   })
 })
+
+describe('Now on GitHub', () => {
+  const it2 = (number: number, title: string, status: string, o: Record<string, unknown> = {}) => ({ number, title, type: 'Issue', state: 'open', status, labels: [], url: '', prs: [], ...o })
+  const snapWith = () => {
+    const live = reduce([])
+    return {
+      live, git: [], hub: { startedAt: '', events: 0, demo: false },
+      trackers: [{
+        provider: 'github', repo: 'me/db', fetchedAt: 't', board: {}, epics: [],
+        items: [
+          it2(1, 'WAL replay drops a segment', 'In progress', { type: 'Bug', assignees: ['ana'], prs: [{ number: 9, state: 'open', url: '' }] }),
+          it2(2, 'Package arm64 builds', 'In review'),
+          it2(3, 'Handle leak under cgroup v2', 'Todo', { labels: ['bug'] }),
+          it2(4, 'Docs', 'Todo'),
+        ],
+        changes: [{ number: 9, title: '', head: 'fix/1', base: 'main', state: 'open', draft: false, mergeable: 'conflicting', checks: 'failure', url: '', ticket: 1 }],
+      }],
+    } as never
+  }
+
+  it('shows bugs and issues in flight with their PR, without agent lanes and without empty phases', () => {
+    const out = render(snapWith(), 110, { color: false }, Date.now(), 'now').join('\n')
+    expect(out).toContain('Now on GitHub · 1 in progress · 1 in review · 2 open bugs')
+    expect(out).toMatch(/#1 +bug in progress WAL replay drops a segment +PR #9 · ✗ checks · ✗ conflict · @ana/)
+    expect(out).toMatch(/#2 +in review +Package arm64 builds/)
+    expect(out).toContain('Bugs not started: #3 Handle leak under cgroup v2')
+    expect(out).not.toContain('#4')
+    expect(out).not.toContain('Product phases')
+  })
+
+  it('stays inside a narrow terminal', () => {
+    for (const w of [60, 72, 80]) {
+      for (const line of render(snapWith(), w, { color: true }, Date.now(), 'now')) expect(visible(line)).toBeLessThanOrEqual(w)
+    }
+  })
+})

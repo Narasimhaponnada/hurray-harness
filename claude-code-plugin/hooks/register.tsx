@@ -299,6 +299,36 @@ export const register: Register = (on) => {
         </Box>
       )
     }
+    // What the tracker has in flight, with its PR and who has it: shown with or without agent lanes.
+    const STAGE: Record<string, [string, string]> = { blocked: ['blocked', 'warning'], working: ['in progress', '#85B7EB'], review: ['in review', '#AFA9EC'], qa: ['in QA', '#EF9F27'] }
+    const githubNow = () => {
+      const g = s.github
+      if (!g) return null
+      const TW = Math.max(14, cols - 26 - (cols >= 90 ? 34 : 14))
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text><Text weight="medium">Now on GitHub</Text><Text dimColor> · {g.summary}</Text></Text>
+          {g.rows.length ? null : <Text dimColor>  Nothing in progress, in review, in QA or blocked.</Text>}
+          {g.rows.map((r) => {
+            const [word, color] = STAGE[r.stage] ?? [r.stage, 'subtle']
+            const mark = r.checks === 'success' ? '✓' : r.checks === 'failure' ? '✗' : r.checks === 'pending' ? '…' : ''
+            const prText = r.pr ? (cols >= 90 ? `PR #${r.pr}${mark ? ' · ' + mark + ' checks' : ''}${r.conflict ? ' · ✗ conflict' : ''}` : `PR #${r.pr}${mark ? ' ' + mark : ''}${r.conflict ? ' · conflict' : ''}`) : ''
+            return (
+              <Box key={'gh' + r.number} flexDirection="row">
+                <Text mono>{fit('  #' + r.number, 9, false)}</Text>
+                <Text mono color="error">{r.bug ? 'bug ' : '    '}</Text>
+                <Text mono color={color}>{fit(word, 12, false)}</Text>
+                <Text mono>{fit(r.title, TW, false)}</Text>
+                {prText ? <Text mono color={r.checks === 'failure' || r.conflict ? 'error' : 'subtle'}>{'  ' + prText}</Text> : null}
+                {r.who && cols >= 90 ? <Text mono dimColor>{'  @' + r.who}</Text> : null}
+              </Box>
+            )
+          })}
+          {g.more ? <Text dimColor>  +{g.more} more on the dashboard</Text> : null}
+          {g.bugsNotStarted.length ? <Text><Text color="error">  Bugs not started: </Text><Text dimColor>{g.bugsNotStarted.join(' · ')}</Text></Text> : null}
+        </Box>
+      )
+    }
     const idleLine = () => (s.idle.length ? <Box marginTop={1}><Text dimColor>Idle: {s.idle.map((r) => `${ROLE_NAME[r.role] ?? r.role}${r.lanes.length ? ' ' + r.lanes.join(',') : ''}`).join(' · ')}</Text></Box> : null)
 
     const pick = (v: PaneView | null) => update($, view, (prev) => ({ pinned: v, start: v ? prev?.start ?? nowMs : nowMs }))
@@ -323,9 +353,11 @@ export const register: Register = (on) => {
           </Box>
         ) : null}
         {shown === 'now' ? skillsLine() : null}
-        {shown === 'now' ? (s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : <Text dimColor>No lanes running.</Text>) : null}
+        {shown === 'now' && s.build.length ? grid(`Tickets in flight · ${s.busy} busy · each cell shows status and the agent on it`, BUILD_STEPS, s.build) : null}
         {shown === 'now' && s.test.length ? grid('Test lanes', TEST_STEPS, s.test) : null}
         {shown === 'now' ? idleLine() : null}
+        {shown === 'now' ? githubNow() : null}
+        {shown === 'now' && !s.build.length && !s.test.length ? <Box marginTop={1}><Text dimColor>Agent lanes appear here once your harness reports steps (hh step) or tool hooks are set up.</Text></Box> : null}
         {shown === 'flow' ? flow() : null}
 
         <Box flexDirection="row" gap={1} marginTop={1}>

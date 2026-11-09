@@ -1,4 +1,4 @@
-import type { AgentRow, Cell, LaneRow, PaneView, Summary } from '../types'
+import type { AgentRow, Cell, GhRow, GhStage, GitHubNow, LaneRow, PaneView, Summary } from '../types'
 
 // Turns the hub's /api/state snapshot into the small summary the plugin draws. Pure, so it is tested alone.
 
@@ -69,6 +69,41 @@ function agentsOf(live: Json): { agents: AgentRow[]; idle: { role: string; lanes
   return { agents, idle: [...idle].map(([role, lanes]) => ({ role, lanes })) }
 }
 
+// Project boards name their columns freely ("In progress", "Doing", "Todo"), so match loosely.
+export function stageOf(status: string): GhStage | 'todo' | 'done' {
+  const s = status.toLowerCase()
+  if (/block|need|wait|hold/.test(s)) return 'blocked'
+  if (/qa|test|verif|validat/.test(s)) return 'qa'
+  if (/review/.test(s)) return 'review'
+  if (/progress|doing|develop|active|working|started|wip/.test(s)) return 'working'
+  if (/done|closed|complete|shipped|merged|released/.test(s)) return 'done'
+  return 'todo'
+}
+
+const ORDER: Record<string, number> = { blocked: 0, working: 1, review: 2, qa: 3 }
+
+export function githubNow(tracker: Json | undefined): GitHubNow | undefined {
+  if (!tracker?.items) return undefined
+  const changes: Json[] = tracker.changes ?? []
+  const open: Json[] = tracker.items.filter((i: Json) => i.state === 'open' && i.type !== 'Epic')
+  const bug = (i: Json) => /bug|defect/i.test(String(i.type ?? '')) || (i.labels ?? []).some((l: string) => /(^|[:/ ])(bug|defect)s?$/i.test(l))
+  const rows: (GhRow & { at: string })[] = []
+  const notStarted: Json[] = []
+  for (const i of open) {
+    const st = stageOf(String(i.status ?? ''))
+    if (st === 'todo') { if (bug(i)) notStarted.push(i); continue }
+    if (st === 'done') continue
+    const ref = (i.prs ?? []).find((p: Json) => p.state === 'open') ?? i.prs?.[0]
+    const cr = ref ? changes.find((c) => c.number === ref.number) : changes.find((c) => c.ticket === i.number && c.state === 'open')
+    rows.push({ number: i.number, title: String(i.title ?? ''), bug: bug(i), stage: st, pr: cr?.number, checks: cr?.checks, conflict: cr?.mergeable === 'conflicting', who: i.assignees?.[0], at: String(i.updatedAt ?? '') })
+  }
+  rows.sort((a, b) => ORDER[a.stage]! - ORDER[b.stage]! || Number(b.bug) - Number(a.bug) || b.at.localeCompare(a.at))
+  const n = (st: GhStage) => rows.filter((r) => r.stage === st).length
+  const bugs = open.filter(bug).length
+  const summary = [n('working') && `${n('working')} in progress`, n('review') && `${n('review')} in review`, n('qa') && `${n('qa')} in QA`, n('blocked') && `${n('blocked')} blocked`, `${bugs} open bug${bugs === 1 ? '' : 's'}`].filter(Boolean).join(' · ')
+  return { summary, rows: rows.slice(0, 8).map(({ at: _, ...r }) => r), more: Math.max(0, rows.length - 8), bugsNotStarted: notStarted.slice(0, 5).map((i) => `#${i.number} ${i.title}`) }
+}
+
 export function summarize(state: Json, url: string, now: number): Summary {
   const live: Json = state.live ?? {}
   const tracker: Json | undefined = state.trackers?.[0]
@@ -96,7 +131,8 @@ export function summarize(state: Json, url: string, now: number): Summary {
   }
   if (decisions.some((d) => !approval(d))) for (const p of phasesIn) if (p.status === 'running') gated.add(p.name)
   const PW: Record<string, string> = { done: 'done', running: 'now', waiting: 'waiting', failed: 'failed', blocked: 'waits on you', skipped: 'skipped' }
-  const phases = phasesIn.map((p) => ({
+  // Only once a harness reports phases: a row of boxes all saying "waiting" tells you nothing.
+  const phases = (phasesIn.some((p) => p.status !== 'waiting') ? phasesIn : []).map((p) => ({
     name: String(p.name), tone: (gated.has(p.name) ? 'blocked' : cell(p.status)) as Cell,
     word: gated.has(p.name) ? 'waits on you' : PW[p.status] ?? String(p.status), skill: p.skill,
   }))
@@ -119,6 +155,7 @@ export function summarize(state: Json, url: string, now: number): Summary {
     build: rows.filter((r) => r.kind !== 'qa').map((r) => lane(r, BUILD_STEPS)),
     test: rows.filter((r) => r.kind === 'qa').map((r) => lane(r, TEST_STEPS)),
     worktrees,
+    github: githubNow(tracker),
   }
 }
 

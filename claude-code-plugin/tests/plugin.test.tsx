@@ -131,3 +131,38 @@ test('Now and Flow take turns, a button pins one, and decisions stay on top', as
   expect(await ui.find({ type: 'Text', text: /pinned/ })).toBeFalsy()
   await ui.unmount()
 })
+
+test('with no agent lanes, the pane shows the bugs and issues in flight on GitHub, and no empty phases', async ($, on) => {
+  const GH = {
+    live: { runs: [], segments: [], agents: [], rows: [], decisions: [], phases: [{ name: 'Plan', status: 'waiting' }, { name: 'Build', status: 'waiting' }] },
+    trackers: [{
+      repo: 'me/db', milestone: { title: 'M9' }, board: { Done: 11, 'In progress': 4 },
+      items: [
+        { number: 51, title: 'WAL replay drops a segment', type: 'Bug', state: 'open', status: 'In progress', labels: [], prs: [{ number: 9, state: 'open' }], assignees: ['ana'] },
+        { number: 52, title: 'Package arm64 builds', type: 'Task', state: 'open', status: 'In review', labels: [], prs: [] },
+        { number: 53, title: 'Handle leak under cgroup v2', type: 'Issue', state: 'open', status: 'Todo', labels: ['bug'], prs: [] },
+      ],
+      changes: [{ number: 9, head: 'fix/51-wal', state: 'open', checks: 'failure', mergeable: 'mergeable' }],
+    }],
+    git: [],
+  }
+  mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'lanes' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('http.fetch', () => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(GH) } }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run(RUN_LANES)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /1 in progress · 1 in review · 2 open bugs/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /WAL replay drops a segment/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /PR #9 · ✗ checks/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /@ana/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /#53 Handle leak under cgroup v2/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Product phases/ })).toBeFalsy()
+  await ui.unmount()
+})

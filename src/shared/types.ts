@@ -184,6 +184,8 @@ export interface WorkItem {
   epic?: number
   url: string
   prs: { number: number; state: string; url: string }[]
+  assignees?: string[] // GitHub logins
+  updatedAt?: string
 }
 
 export interface Epic {

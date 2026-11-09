@@ -29,6 +29,11 @@ export type SegmentRow = { lane: string; role?: string; step: string; status: Ce
 
 export type AgentRow = { lane?: string; role: string; model?: string; skill?: string; ticket?: number; step?: string; attempt: number; since: number; doing?: string; used?: number; budget?: number }
 
+export type GhStage = 'blocked' | 'working' | 'review' | 'qa'
+export type GhRow = { number: number; title: string; bug: boolean; stage: GhStage; pr?: number; checks?: string; conflict?: boolean; who?: string }
+// The tracker's work in flight: bugs and issues in progress, in review, in QA or blocked.
+export type GitHubNow = { summary: string; rows: GhRow[]; more: number; bugsNotStarted: string[] }
+
 export type PaneView = 'now' | 'flow'
 export type ViewState = { pinned: PaneView | null; start: number }
 
@@ -55,6 +60,7 @@ export type Summary = {
   segments: SegmentRow[]
   agents: AgentRow[] // running now
   idle: { role: string; lanes: string[] }[]
+  github?: GitHubNow
 }
 
 declare module 'claude-code' {

@@ -1,5 +1,6 @@
 import { DEV_STEPS, QA_STEPS, STEP_LABELS } from './shared/reduce.js'
 import type { Decision, PhaseState, Snapshot, StepState, TicketRow } from './shared/types.js'
+import { STAGE_WORD, workInFlight, type Stage, type WorkRow } from './shared/work.js'
 
 // The terminal view (hh watch): the same phases strip and ticket grid as the dashboard, drawn with ANSI
 // colors. render() is pure: snapshot and width in, lines out.
@@ -112,6 +113,70 @@ export function render(snap: Snapshot, width: number, s: Style = { color: true }
   return out
 }
 
+const STAGE_FG: Record<Stage, number> = { blocked: 214, working: 75, review: 183, qa: 179, todo: 245, done: 71 }
+
+// What the tracker has in flight: bugs and issues in progress, in review, in QA or blocked, each with
+// its PR and who has it. Agent lanes show what agents do; this shows what the team's board says.
+function githubNow(snap: Snapshot, W: number, s: Style): string[] {
+  const out: string[] = []
+  for (const t of snap.trackers) {
+    if (t.error && !t.items.length) { out.push(bold(s, 'Now on GitHub ') + dim(s, '· could not read: ' + t.error), ''); continue }
+    const w = workInFlight(t)
+    const parts = [
+      w.counts.working && `${w.counts.working} in progress`, w.counts.review && `${w.counts.review} in review`,
+      w.counts.qa && `${w.counts.qa} in QA`, w.counts.blocked && `${w.counts.blocked} blocked`,
+      `${w.bugsOpen} open bug${w.bugsOpen === 1 ? '' : 's'}`,
+    ].filter(Boolean).join(' · ')
+    out.push(bold(s, 'Now on GitHub') + dim(s, fit(` · ${snap.trackers.length > 1 ? t.repo + ' · ' : ''}${parts}`, Math.max(0, W - 13), 'left').trimEnd()))
+    if (!w.rows.length) out.push(dim(s, '  Nothing in progress, in review, in QA or blocked.'))
+    const shown = w.rows.slice(0, 8)
+    // One column for the PR and who has it, as wide as the widest row needs, so the rows line up.
+    const widest = Math.max(0, ...shown.map((r) => right(r, s).len))
+    const rightW = W - 25 - widest - 2 >= 24 ? widest : 0 // a full column only when titles keep 24 characters
+    for (const r of shown) out.push(workLine(r, W, s, rightW))
+    if (w.rows.length > shown.length) out.push(dim(s, `  +${w.rows.length - shown.length} more on the dashboard`))
+    if (w.bugsNotStarted.length) {
+      const list = w.bugsNotStarted.map((b) => `#${b.number} ${b.title}`).join(' · ')
+      out.push(fg(s, 203, '  Bugs not started: ') + dim(s, fit(list, Math.max(0, W - 20), 'left').trimEnd()))
+    }
+    out.push('')
+  }
+  return out
+}
+
+// The PR and who has it. Compact, for narrow terminals: "PR #6012 ✗", with a conflict spelled out.
+function right(r: WorkRow, s: Style, compact = false): { text: string; len: number } {
+  const bits: [number, string][] = []
+  if (r.pr) {
+    const mark: [number, string] | undefined = r.pr.checks === 'success' ? [71, '✓'] : r.pr.checks === 'failure' ? [203, '✗'] : r.pr.checks === 'pending' ? [179, '…'] : undefined
+    if (compact) {
+      bits.push([245, `PR #${r.pr.number}`])
+      if (mark) bits[0] = [mark[0], `PR #${r.pr.number} ${mark[1]}`]
+      if (r.pr.mergeable === 'conflicting') bits.push([203, 'conflict'])
+    } else {
+      bits.push([245, `PR #${r.pr.number}`])
+      if (r.pr.draft) bits.push([245, 'draft'])
+      if (mark) bits.push([mark[0], mark[1] + ' checks'])
+      if (r.pr.mergeable === 'conflicting') bits.push([203, '✗ conflict'])
+    }
+  }
+  if (r.who && !compact) bits.push([245, '@' + r.who])
+  return { text: bits.map(([c, t]) => fg(s, c, t)).join(dim(s, ' · ')), len: bits.reduce((n, [, t]) => n + t.length, 0) + Math.max(0, bits.length - 1) * 3 }
+}
+
+function workLine(r: WorkRow, W: number, s: Style, rightW: number): string {
+  const lead = '  ' + fit('#' + r.number, 7, 'left') + (r.bug ? fg(s, 203, 'bug ') : '    ') + fg(s, STAGE_FG[r.stage], fit(STAGE_WORD[r.stage], 12, 'left'))
+  const titleW = W - 25 - (rightW ? rightW + 2 : 0)
+  const rt = right(r, s)
+  if (titleW < 14 || rt.len > rightW) {
+    // Too narrow for the full column: the title, then the PR in short.
+    const c = right(r, s, true)
+    const t = fit(r.title, Math.max(0, W - 25 - (c.len ? c.len + 2 : 0)), 'left')
+    return lead + (c.len ? t + '  ' + c.text : t.trimEnd())
+  }
+  return lead + fit(r.title, titleW, 'left') + (rightW ? '  ' + rt.text : '')
+}
+
 function nowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
   const out: string[] = []
   const decisions = snap.live.decisions
@@ -120,10 +185,13 @@ function nowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
   const gates = gated(phases, decisions)
   const pw = Math.max(5, Math.floor((W - (phases.length - 1)) / phases.length))
   const toneP = (p: PhaseState): Tone => (gates.has(p.name) ? 'need' : toneOf(p.status))
-  out.push(bold(s, 'Product phases'))
-  out.push(phases.map((p) => paint(s, toneP(p), fit(p.name, pw))).join(' '))
-  out.push(phases.map((p) => paint(s, toneP(p), fit(gates.has(p.name) ? 'waits on you' : PHASE_WORD[p.status] ?? p.status, pw))).join(' '))
-  out.push(phases.map((p) => paint(s, toneP(p), fit(p.skill ?? '', pw))).join(' '))
+  // Only once a harness reports phases: nine boxes all saying "waiting" tell you nothing.
+  if (phases.some((p) => p.status !== 'waiting')) {
+    out.push(bold(s, 'Product phases'))
+    out.push(phases.map((p) => paint(s, toneP(p), fit(p.name, pw))).join(' '))
+    out.push(phases.map((p) => paint(s, toneP(p), fit(gates.has(p.name) ? 'waits on you' : PHASE_WORD[p.status] ?? p.status, pw))).join(' '))
+    out.push(phases.map((p) => paint(s, toneP(p), fit(p.skill ?? '', pw))).join(' '))
+  }
   // Skills running now, with who runs them: one line under the phases.
   const busy = snap.live.agents.filter((a) => a.status === 'busy')
   if (busy.length) {
@@ -132,7 +200,7 @@ function nowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
     const line = [...bySkill].map(([k, who]) => fg(s, 183, k) + ` ×${who.length} ` + dim(s, '(' + who.join(', ') + ')')).join('   ')
     out.push(bold(s, 'Skills running ') + (visible(line) <= W - 15 ? line : [...bySkill].map(([k, who]) => fg(s, 183, k) + ` ×${who.length}`).join('   ')))
   }
-  out.push('')
+  if (out.length) out.push('')
 
   // Ticket grids
   const rows = snap.live.rows.filter((r) => !r.finished || r.updatedAt >= new Date(now - 30 * 60_000).toISOString())
@@ -175,7 +243,12 @@ function nowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
     }
     out.push('')
   }
-  if (!rows.length) out.push(dim(s, 'No agent steps yet. Lanes appear when a harness sends steps (hh step) or a tool hook ties activity to a worktree.'), '')
+  out.push(...githubNow(snap, W, s))
+  if (!rows.length) {
+    const hint = 'Agent lanes appear here once your harness reports steps (hh step) or tool hooks are set up: docs/INTEGRATIONS.md'
+    const short = 'Agent lanes: see docs/INTEGRATIONS.md'
+    out.push(dim(s, hint.length <= W ? hint : fit(short, W, 'left').trimEnd()), '')
+  }
 
   // Idle agents on one line.
   const idle = snap.live.agents.filter((a) => a.status !== 'busy')
