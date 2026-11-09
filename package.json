@@ -23,7 +23,7 @@
   },
   "author": "Narasimhaponnada",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=22.13"
   },

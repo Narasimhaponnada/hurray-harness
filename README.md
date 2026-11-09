@@ -245,3 +245,7 @@ Releases: [docs/RELEASING.md](docs/RELEASING.md).
 - **Shared context for agents:** a read-only MCP server, so agents in any tool can ask who holds a ticket or what was decided.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## License
+
+[MIT](LICENSE)
