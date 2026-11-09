@@ -19,6 +19,8 @@ npm version patch          # or minor / major: updates package.json and makes th
 git push --follow-tags     # the Release workflow does the rest
 ```
 
+Or, in the browser: **Releases → Draft a new release**, type a new tag such as `v0.1.1` on `main`, and **Publish release**. The tag must match the version in `package.json`.
+
 The workflow checks the types, runs the tests, checks that the tag matches `package.json`, packs, creates the GitHub release with the `.tgz` attached, then publishes to npm with provenance.
 
 ## Checks on every push

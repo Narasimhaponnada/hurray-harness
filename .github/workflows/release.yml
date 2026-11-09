@@ -1,6 +1,7 @@
 name: Release
 
 # To release: npm version patch && git push --follow-tags
+# Or in the browser: Releases -> Draft a new release -> new tag vX.Y.Z on main -> Publish.
 # Every tag gets a GitHub release with the package attached. It is also published to npm once the
 # repository has an NPM_TOKEN secret (see docs/RELEASING.md).
 on:
@@ -29,8 +30,11 @@ jobs:
       - name: Check the tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm pack
-      - name: Attach the package to a GitHub release
-        run: gh release create "$GITHUB_REF_NAME" hurray-harness-*.tgz --title "$GITHUB_REF_NAME" --generate-notes
+      - name: Attach the package to the GitHub release (made here, or already made in the browser)
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" hurray-harness-*.tgz --clobber
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Publish to npm
