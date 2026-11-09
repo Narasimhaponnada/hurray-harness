@@ -248,20 +248,17 @@ hh emit '{"kind":"decision.open","decision":{"id":"r1-db","title":"Pick the data
   <div class="wrap">
     <p class="eyebrow">Get started</p>
     <h2>Running in a minute</h2>
-    <p class="sub">You need Node 22.13 or newer, git, and the GitHub CLI signed in. Try the demo first: it plays out a made-up milestone, with no repo or agents needed.</p>
+    <p class="sub">You need Node 22.13 or newer, git, and the GitHub CLI signed in. Try the demo first: it plays out a made-up milestone, with no repo or agents needed. Until the package is on npm, install the <code>.tgz</code> from the <a href="https://github.com/Narasimhaponnada/hurray-harness/releases/latest">latest release</a> the same way.</p>
     <div class="steps">
       <div>
         <h3>Try the demo</h3>
-        <pre>git clone https://github.com/Narasimhaponnada/hurray-harness.git
-cd hurray-harness
-npm install &amp;&amp; npm run build
-npm run demo            <span class="c"># http://127.0.0.1:7311</span>
-node bin/hh.js watch    <span class="c"># second terminal</span></pre>
+        <pre>npm install -g hurray-harness
+hh start --demo         <span class="c"># http://127.0.0.1:7311</span>
+hh watch                <span class="c"># second terminal</span></pre>
       </div>
       <div>
         <h3>Use it on your repo</h3>
-        <pre>npm link                <span class="c"># once: puts hh on your PATH</span>
-cd ~/code/my-product
+        <pre>cd ~/code/my-product
 hh check                <span class="c"># can git, gh and the tracker be read?</span>
 hh start                <span class="c"># hub and dashboard</span>
 hh watch                <span class="c"># the terminal view</span></pre>

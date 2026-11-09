@@ -2,7 +2,26 @@
   "name": "hurray-harness",
   "version": "0.1.0",
   "description": "Track every build. Lose fewer hairs. A live, tool-neutral view of AI agent lanes, tickets, worktrees and merges.",
-  "private": true,
+  "keywords": [
+    "ai-agents",
+    "agent-harness",
+    "claude-code",
+    "cursor",
+    "git-worktree",
+    "dashboard",
+    "developer-tools",
+    "github",
+    "tui"
+  ],
+  "homepage": "https://narasimhaponnada.github.io/hurray-harness/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Narasimhaponnada/hurray-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Narasimhaponnada/hurray-harness/issues"
+  },
+  "author": "Narasimhaponnada",
   "type": "module",
   "license": "UNLICENSED",
   "engines": {
@@ -15,7 +34,7 @@
     "bin",
     "dist",
     "integrations",
-    "docs"
+    "docs/*.md"
   ],
   "scripts": {
     "dev": "tsx src/cli.ts start --demo",
@@ -23,7 +42,9 @@
     "start": "node bin/hh.js start",
     "demo": "node bin/hh.js start --demo",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",

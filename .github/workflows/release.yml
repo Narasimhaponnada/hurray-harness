@@ -1,0 +1,38 @@
+name: Release
+
+# To release: npm version patch && git push --follow-tags
+# Every tag gets a GitHub release with the package attached. It is also published to npm once the
+# repository has an NPM_TOKEN secret (see docs/RELEASING.md).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # the GitHub release
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Check the tag matches package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm pack
+      - name: Attach the package to a GitHub release
+        run: gh release create "$GITHUB_REF_NAME" hurray-harness-*.tgz --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Publish to npm
+        if: env.NODE_AUTH_TOKEN != ''
+        run: npm publish ./hurray-harness-*.tgz --provenance --access public

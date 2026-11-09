@@ -8,6 +8,7 @@ A live view of AI agents building your product: which lane is on which ticket, w
 
 <p align="center">
 <a href="#try-it-in-one-minute">Try it</a> ·
+<a href="#install">Install</a> ·
 <a href="#use-it-on-your-repo">Use it</a> ·
 <a href="#inside-claude-code">Claude Code</a> ·
 <a href="#connect-your-agents">Connect agents</a> ·
@@ -62,19 +63,31 @@ In the terminal and in Claude Code, what needs your decision stays pinned on top
 No repo, agents or GitHub needed: the demo plays out a made-up milestone.
 
 ```bash
-git clone https://github.com/Narasimhaponnada/hurray-harness.git
-cd hurray-harness
-npm install && npm run build
-npm run demo                       # hub and dashboard on http://127.0.0.1:7311
-node bin/hh.js watch               # in a second terminal: the Now and Flow views
+npm install -g hurray-harness      # or see Install below
+hh start --demo                    # hub and dashboard on http://127.0.0.1:7311
+hh watch                           # in a second terminal: the Now and Flow views
 ```
 
-## Use it on your repo
+## Install
 
 You need Node 22.13 or newer, git, and the GitHub CLI signed in (`gh auth login`).
 
 ```bash
-npm link                # once, from the hurray-harness folder: puts hh on your PATH
+npm install -g hurray-harness
+```
+
+Not on npm yet? Install a release straight from GitHub instead: open the [latest release](https://github.com/Narasimhaponnada/hurray-harness/releases/latest), copy the link to the `.tgz` file, and run `npm install -g <that link>`.
+
+Or build it from source:
+
+```bash
+git clone https://github.com/Narasimhaponnada/hurray-harness.git
+cd hurray-harness && npm install && npm run build && npm link
+```
+
+## Use it on your repo
+
+```bash
 cd ~/code/my-product    # your local clone; lane worktrees are found from here
 hh check                # confirms git, gh and the tracker can be read
 hh start                # the hub and the dashboard on http://127.0.0.1:7311
@@ -212,6 +225,8 @@ npm test                             # hub, terminal and API tests
 npm run typecheck
 claude plugin test claude-code-plugin   # the Claude Code plugin, in the engine
 ```
+
+Releases: [docs/RELEASING.md](docs/RELEASING.md).
 
 | Path | Contents |
 |---|---|
