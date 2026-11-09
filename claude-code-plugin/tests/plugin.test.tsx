@@ -36,13 +36,23 @@ const PANE = {
   props: { title: 'Agent lanes', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-function engine(on: On, hub: 'up' | 'down', seen: { status: (string | undefined)[]; toasts: string[] }) {
+type Seen = { status: (string | undefined)[]; toasts: string[]; opened?: string[]; spawned?: { argv: readonly string[]; cwd?: string }[] }
+
+// spawn: how hh start behaves when the plugin starts it. 'runs' keeps running, 'missing' cannot start.
+function engine(on: On, hub: 'up' | 'down', seen: Seen, opts: { spawn?: 'runs' | 'missing'; env?: Record<string, string> } = {}) {
   mock.clock(on)
   mock.store(on)
   on('command.register', () => ({ value: { command: 'lanes' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', (_, e) => { (seen.opened ??= []).push(e.id); return { value: { isPlaced: true } } })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('env.get', () => ({ value: undefined }))
+  on('env.get', (_, e) => ({ value: opts.env?.[e.name] }))
+  on('process.spawn', async function* (_, e) {
+    (seen.spawned ??= []).push({ argv: e.argv, cwd: e.cwd })
+    if (opts.spawn !== 'runs') throw new Error('ENOENT')
+    yield { stream: 'stdout' as const, text: 'Hub on http://127.0.0.1:7311\n' }
+    await new Promise(() => {}) // keeps running
+    return { value: { code: 0, signal: null } }
+  })
   on('ui.status', (_, e) => { seen.status.push(e.text); return { value: undefined } })
   on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
   on('http.fetch', (_, e) => {
@@ -92,15 +102,52 @@ test('the phase strip marks the running phase as waiting on you while a decision
   await ui.unmount()
 })
 
-test('a hub that is not running says how to start it', async ($, on) => {
-  const seen = { status: [] as (string | undefined)[], toasts: [] as string[] }
-  engine(on, 'down', seen)
+test('with no hub running, the plugin starts hh start in the session folder', async ($, on) => {
+  const seen: Seen = { status: [], toasts: [] }
+  engine(on, 'down', seen, { spawn: 'runs' })
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  expect(seen.spawned?.[0]).toEqual({ argv: ['hh', 'start'], cwd: '/work/app' })
+  expect(seen.status.at(-1)).toBe('lanes · starting the hub')
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Starting the hub in this folder/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('when hh is not installed, the pane says how to install it', async ($, on) => {
+  const seen: Seen = { status: [], toasts: [] }
+  engine(on, 'down', seen, { spawn: 'missing' })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.command.run(RUN_LANES)
+  // Tried directly, then through cmd.exe for Windows.
+  expect(seen.spawned?.map((x) => x.argv[0])).toEqual(['hh', 'cmd.exe'])
   expect(seen.status.at(-1)).toBe('lanes · hub offline (run hh start)')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /hh start/ }))).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /npm install -g hurray-harness/ })).toBeTruthy()
   await ui.unmount()
+})
+
+test('HH_AUTOSTART=0 never starts the hub', async ($, on) => {
+  const seen: Seen = { status: [], toasts: [] }
+  engine(on, 'down', seen, { spawn: 'runs', env: { HH_AUTOSTART: '0' } })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(seen.spawned).toBeUndefined()
+  expect(seen.status.at(-1)).toBe('lanes · hub offline (run hh start)')
+})
+
+test('the lanes pane opens when an interactive session starts, unless HH_PANE=off', async ($, on) => {
+  const seen: Seen = { status: [], toasts: [] }
+  engine(on, 'up', seen)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(seen.opened).toEqual(['hh-lanes'])
+})
+
+test('HH_PANE=off keeps the pane closed until /lanes', async ($, on) => {
+  const seen: Seen = { status: [], toasts: [] }
+  engine(on, 'up', seen, { env: { HH_PANE: 'off' } })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(seen.opened).toBeUndefined()
+  // A running hub is never started twice.
+  expect(seen.spawned).toBeUndefined()
 })
 
 test('Now and Flow take turns, a button pins one, and decisions stay on top', async ($, on) => {

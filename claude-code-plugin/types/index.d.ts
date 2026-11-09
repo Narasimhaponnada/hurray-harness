@@ -42,6 +42,7 @@ export type DecisionRow = { id: string; title: string; why?: string; url?: strin
 export type Summary = {
   ok: boolean
   error?: string
+  starting?: boolean // the plugin is starting the hub
   at: number
   url: string
   repo?: string

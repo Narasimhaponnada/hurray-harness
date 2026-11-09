@@ -161,7 +161,7 @@ export function summarize(state: Json, url: string, now: number): Summary {
 
 export function statusLine(s: Summary | null): string {
   if (!s) return 'lanes · connecting'
-  if (!s.ok) return 'lanes · hub offline (run hh start)'
+  if (!s.ok) return s.starting ? 'lanes · starting the hub' : 'lanes · hub offline (run hh start)'
   const parts = ['lanes']
   if (s.stage) parts.push(s.stage)
   parts.push(`${s.busy} busy`)

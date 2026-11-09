@@ -109,11 +109,11 @@ Install the plugin once, at the Claude Code prompt:
 /plugin install hurray-harness --marketplace Narasimhaponnada/hurray-harness
 ```
 
-Answer `y` to add the marketplace, then choose the user scope so it's on in every session. With the hub running (`hh start`), every session shows:
+Answer `y` to add the marketplace, then choose the user scope so it's on in every session. No separate terminal is needed: when a session starts and no hub is running, the plugin starts `hh start` in the session's folder (it runs as long as the session), and opens the lanes pane beside the chat. Every session shows:
 
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **An amber band above the prompt** whenever something needs you, with a toast when a new decision appears.
-- **A lanes pane beside the chat** (`/lanes`), with the same Now and Flow views, and buttons to pin one or rotate.
+- **A lanes pane beside the chat**, open from the start (or with `/lanes`), with the same Now and Flow views, the work in flight on GitHub, and buttons to pin a view or rotate.
 - **A decision watcher** (`/hurray-harness:decision-watcher`) that asks you on your phone, through the Claude app, whenever the harness waits on you.
 
 <table>
@@ -126,6 +126,8 @@ Answer `y` to add the marketplace, then choose the user scope so it's on in ever
     <td align="center">Flow</td>
   </tr>
 </table>
+
+To start the hub yourself instead, set `HH_AUTOSTART=0`; to keep the pane closed until you type `/lanes`, set `HH_PANE=off`. Both go in the `env` block of `~/.claude/settings.json`.
 
 If you want just the status line without the plugin, add `{ "statusLine": { "type": "command", "command": "hh status" } }` to `~/.claude/settings.json`. The same command works in tmux or a shell prompt.
 

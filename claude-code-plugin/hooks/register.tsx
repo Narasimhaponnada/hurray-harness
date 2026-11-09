@@ -10,6 +10,9 @@ import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, VIEW_NAME, availableViews, mmss, r
 //   - a lanes pane beside the chat (/lanes): decisions on top, then the grid, swimlanes and worktree
 //     two views taking turns every HH_ROTATE seconds: Now (phases, skills, grid, agents) and Flow
 //     (swimlanes with each lane's merge state) (default 120), with buttons to pin one
+// No separate terminal needed: when no hub answers, it starts one (hh start) in the session's folder
+// for the session's life, and it opens the lanes pane when an interactive session starts.
+//   HH_AUTOSTART=0  never start the hub    HH_PANE=off  do not open the pane on start
 // Read-only: it only fetches the hub's /api/state.
 
 const PANE = 'hh-lanes'
@@ -37,6 +40,39 @@ const TONE: Record<Cell, { bg: string; fg: string }> = {
 let timer: Timer | undefined
 let seen = new Set<string>()
 let polling = false
+let cwd: string | undefined
+
+// The hub this session started, if any: running while hh start runs, and why it could not start.
+const hub: { running: boolean; tried?: number; error?: string } = { running: false }
+
+// hh is a .cmd file on Windows, which only starts through cmd.exe; elsewhere it runs directly.
+const STARTS: string[][] = [['hh', 'start'], ['cmd.exe', '/d', '/s', '/c', 'hh start']]
+
+async function startHub($: EngineInterface): Promise<void> {
+  if (hub.running || (await $.env.get('HH_AUTOSTART')) === '0') return
+  const now = await $.clock.now()
+  if (hub.tried !== undefined && now - hub.tried < 30_000) return // at most one try every 30 s
+  hub.tried = now
+  hub.running = true
+  hub.error = undefined
+  // A child for the session's life: the loop runs on after this returns, and ends with the hub or
+  // with the session.
+  void (async () => {
+    for (const argv of STARTS) {
+      let out = ''
+      try {
+        for await (const piece of $.process.spawn({ argv, cwd })) out = (out + piece.text).slice(-600)
+        const last = out.trim().split(/\r?\n/).filter(Boolean).at(-1)
+        hub.error = 'hh start stopped' + (last ? ': ' + last : '')
+        break
+      } catch {
+        hub.error = 'hh is not installed or not on PATH. Install it: npm install -g hurray-harness'
+      }
+    }
+    hub.running = false
+    void refresh($)
+  })()
+}
 
 async function refresh($: EngineInterface): Promise<void> {
   if (polling) return
@@ -50,6 +86,11 @@ async function refresh($: EngineInterface): Promise<void> {
       next = res.ok ? summarize(JSON.parse(res.text), url, now) : offline(url, 'hub answered ' + res.status, now)
     } catch (err) {
       next = offline(url, String((err as Error)?.message ?? err), now)
+    }
+    if (!next.ok) {
+      // Only for the default local hub: a hub at another address is someone else's to start.
+      if (!(await $.env.get('HH_URL'))) await startHub($)
+      next = { ...next, starting: hub.running, error: hub.running ? undefined : hub.error ?? next.error }
     }
     $.ui.status(statusLine(next))
     // Plain data only: drop undefined fields before the host stores it.
@@ -71,13 +112,18 @@ async function refresh($: EngineInterface): Promise<void> {
 
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
+    cwd = e.cwd
     await $.command.register({ name: 'lanes', description: 'Show agent lanes from hurray-harness beside the chat' })
     timer?.cancel()
     timer = $.clock.every(POLL_MS, () => void refresh($))
     // Each session starts the rotation at the grid.
     const now = await $.clock.now()
     await update($, view, (prev) => ({ pinned: prev?.pinned ?? null, start: now }))
-    void refresh($)
+    await refresh($)
+    // The lanes pane, beside the chat from the start, so no separate terminal is needed.
+    if (e.isInteractive && (await $.env.get('HH_PANE')) !== 'off') {
+      try { await $.ui.open({ id: PANE, title: 'Agent lanes' }) } catch { /* this surface has no panes */ }
+    }
     return next(e)
   })
 
@@ -115,11 +161,12 @@ export const register: Register = (on) => {
     const s = await read($, summary)
     if (!s) return <Text dimColor>Connecting to the hub…</Text>
     if (!s.ok) {
+      if (s.starting) return <Text dimColor>Starting the hub in this folder (hh start)…</Text>
       return (
         <Box flexDirection="column">
           <Text color="warning">The hub is not running at {s.url}.</Text>
-          <Text dimColor>Start it in your repo: hh start</Text>
-          {s.error ? <Text dimColor>{s.error}</Text> : null}
+          {s.error ? <Text>{s.error}</Text> : null}
+          <Text dimColor>To start it yourself, run hh start in your repo. It starts on its own unless HH_AUTOSTART=0.</Text>
         </Box>
       )
     }
