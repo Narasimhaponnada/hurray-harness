@@ -64,3 +64,6 @@ export function workInFlight(t: TrackerSnapshot): WorkSummary {
 }
 
 export const STAGE_WORD: Record<Stage, string> = { blocked: 'blocked', working: 'in progress', review: 'in review', qa: 'in QA', todo: 'to do', done: 'done' }
+
+// How many items sit in board columns that mean done, whatever the board calls them ("Done", "Closed").
+export const doneOf = (board: Record<string, number>) => Object.entries(board).reduce((n, [k, v]) => n + (stageOf(k) === 'done' ? v : 0), 0)

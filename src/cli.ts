@@ -17,6 +17,7 @@ import { TeamsNotifier, loadSecret } from './hub/teams.js'
 import { startTunnel } from './hub/tunnel.js'
 import { DecisionFeed, feedLine } from './feed.js'
 import { spawnCommand } from './spawn.js'
+import { doneOf } from './shared/work.js'
 
 function statusLine(s: Snapshot): string {
   const run = s.live.runs.find((r) => r.status === 'running')
@@ -27,7 +28,7 @@ function statusLine(s: Snapshot): string {
   if (run?.stage) parts.push(run.stage)
   parts.push(busy + ' busy')
   if (s.live.decisions.length) parts.push(s.live.decisions.length + ' need you')
-  if (total) parts.push(`${board['Done'] ?? 0}/${total} done`)
+  if (total) parts.push(`${doneOf(board)}/${total} done`)
   return parts.join(' · ')
 }
 

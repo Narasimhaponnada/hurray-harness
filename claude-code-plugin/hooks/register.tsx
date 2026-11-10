@@ -13,7 +13,10 @@ import { BUILD_STEPS, STEP_LABEL, TEST_STEPS, VIEW_NAME, availableViews, mmss, r
 // No separate terminal needed: when no hub answers, it starts one (hh start) in the session's folder
 // for the session's life, and it opens the lanes pane when an interactive session starts.
 //   HH_AUTOSTART=0  never start the hub    HH_PANE=off  do not open the pane on start
-// Read-only: it only fetches the hub's /api/state.
+// It also tells the hub what each agent does (no hook file to copy): for edits, commands, skills and
+// subagents it sends the tool's name, the file path or command line, the skill or agent type, and
+// which subagent acted. Never file contents, prompts or tool output. HH_REPORT=0 turns this off.
+// Read-only on your code: it only reads the hub and posts those action lines to it.
 
 const PANE = 'hh-lanes'
 const POLL_MS = 4000
@@ -110,7 +113,38 @@ async function refresh($: EngineInterface): Promise<void> {
   }
 }
 
+// Tools worth a line on the lanes: what changes code, runs commands, invokes skills or starts agents.
+const REPORTED = /^(Bash|Edit|Write|MultiEdit|NotebookEdit|Skill|Agent|Task)$/
+const agentTypes = new Map<string, string>()
+const pick = (o: Record<string, unknown>, keys: string[]) =>
+  Object.fromEntries(keys.filter((k) => typeof o[k] === 'string').map((k) => [k, String(o[k]).slice(0, 300)]))
+
+async function report($: EngineInterface, e: { tool: string; agentId?: string } & Record<string, unknown>): Promise<void> {
+  try {
+    if (!REPORTED.test(e.tool) || (await $.env.get('HH_REPORT')) === '0') return
+    const s = await read($, summary)
+    if (!s?.ok) return // no hub: nothing to tell
+    let agentType: string | undefined
+    if (e.agentId) {
+      if (!agentTypes.has(e.agentId)) for (const a of await $.agent.list()) agentTypes.set(a.id, a.type)
+      agentType = agentTypes.get(e.agentId)
+    }
+    const body = {
+      hook_event_name: 'PreToolUse', tool_name: e.tool, cwd, session_id: e.agentId ?? 'main', agent_type: agentType,
+      tool_input: pick(e, ['command', 'file_path', 'notebook_path', 'path', 'skill', 'subagent_type', 'description']),
+    }
+    await $.http.fetch(s.url + '/api/hook/claude-code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  } catch {
+    // The hub went away or refused: the next action tries again.
+  }
+}
+
 export const register: Register = (on) => {
+  on('tool.call', async ($, e, next) => {
+    void report($, e as never)
+    return next(e)
+  })
+
   on('session.start', async ($, e, next) => {
     cwd = e.cwd
     await $.command.register({ name: 'lanes', description: 'Show agent lanes from hurray-harness beside the chat' })

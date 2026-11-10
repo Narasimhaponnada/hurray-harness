@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import type { TicketRow, TrackerSnapshot } from '../../src/shared/types.js'
 import { BOARD_CLASS, BOARD_ORDER, ago, builderOf, roleLabel } from '../lib.js'
+import { stageOf } from '../../src/shared/work.js'
+
+// Board columns are named freely ("In progress", "Doing", "QA"): sum them by what they mean.
+const byStage = (board: Record<string, number>, ...stages: ReturnType<typeof stageOf>[]) =>
+  Object.entries(board).reduce((n, [k, v]) => n + (stages.includes(stageOf(k)) ? v : 0), 0)
 
 export function GitHubView({ trackers, rows }: { trackers: TrackerSnapshot[]; rows: TicketRow[] }) {
   const t = trackers[0]
@@ -15,7 +20,7 @@ export function GitHubView({ trackers, rows }: { trackers: TrackerSnapshot[]; ro
   }
   const ms = t.milestone
   const total = Object.values(t.board).reduce((a, b) => a + b, 0)
-  const done = t.board['Done'] ?? 0
+  const done = byStage(t.board, 'done')
   const pct = (n = 0) => (total ? (n / total) * 100 : 0)
   const statuses = [...BOARD_ORDER, ...Object.keys(t.board).filter((k) => !BOARD_ORDER.includes(k))]
 
@@ -49,9 +54,9 @@ export function GitHubView({ trackers, rows }: { trackers: TrackerSnapshot[]; ro
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
             <div className="bar" style={{ flex: 1 }} aria-label={`${done} of ${total} done`}>
               <span style={{ width: pct(done) + '%', background: 'var(--ok-fill)' }} />
-              <span style={{ width: pct((t.board['In Progress'] ?? 0) + (t.board['In Review'] ?? 0)) + '%', background: 'var(--run-fill)' }} />
-              <span style={{ width: pct(t.board['QA Validation']) + '%', background: 'var(--qa-fill)' }} />
-              <span style={{ width: pct(t.board['Blocked']) + '%', background: 'var(--bad-fill)' }} />
+              <span style={{ width: pct(byStage(t.board, 'working', 'review')) + '%', background: 'var(--run-fill)' }} />
+              <span style={{ width: pct(byStage(t.board, 'qa')) + '%', background: 'var(--qa-fill)' }} />
+              <span style={{ width: pct(byStage(t.board, 'blocked')) + '%', background: 'var(--bad-fill)' }} />
             </div>
             <span>{done} of {total} done</span>
           </div>
@@ -80,7 +85,7 @@ export function GitHubView({ trackers, rows }: { trackers: TrackerSnapshot[]; ro
           <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 4 }}>Issues · {filter ?? 'all not done'} ({items.length})</div>
           <div className="scroll">
             <table className="issues">
-              <colgroup><col style={{ width: 50 }} /><col /><col style={{ width: 72 }} /><col style={{ width: 62 }} /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col style={{ width: 52 }} /></colgroup>
+              <colgroup><col style={{ width: 64 }} /><col /><col style={{ width: 72 }} /><col style={{ width: 62 }} /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col style={{ width: 52 }} /></colgroup>
               <thead><tr><th>#</th><th>Title</th><th>Type</th><th>Epic</th><th>Status</th><th>Held by</th><th>PR</th></tr></thead>
               <tbody>
                 {items.map((i) => (

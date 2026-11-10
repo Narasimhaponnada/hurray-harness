@@ -82,7 +82,7 @@ export function stageOf(status: string): GhStage | 'todo' | 'done' {
 
 const ORDER: Record<string, number> = { blocked: 0, working: 1, review: 2, qa: 3 }
 
-export function githubNow(tracker: Json | undefined): GitHubNow | undefined {
+export function githubNow(tracker: Json | undefined, inGrid: Set<number> = new Set()): GitHubNow | undefined {
   if (!tracker?.items) return undefined
   const changes: Json[] = tracker.changes ?? []
   const open: Json[] = tracker.items.filter((i: Json) => i.state === 'open' && i.type !== 'Epic')
@@ -101,7 +101,9 @@ export function githubNow(tracker: Json | undefined): GitHubNow | undefined {
   const n = (st: GhStage) => rows.filter((r) => r.stage === st).length
   const bugs = open.filter(bug).length
   const summary = [n('working') && `${n('working')} in progress`, n('review') && `${n('review')} in review`, n('qa') && `${n('qa')} in QA`, n('blocked') && `${n('blocked')} blocked`, `${bugs} open bug${bugs === 1 ? '' : 's'}`].filter(Boolean).join(' · ')
-  return { summary, rows: rows.slice(0, 8).map(({ at: _, ...r }) => r), more: Math.max(0, rows.length - 8), bugsNotStarted: notStarted.slice(0, 5).map((i) => `#${i.number} ${i.title}`) }
+  // Tickets already in the grid are not listed again; the summary still counts them.
+  const listed = rows.filter((r) => !inGrid.has(r.number))
+  return { summary, rows: listed.slice(0, 8).map(({ at: _, ...r }) => r), more: Math.max(0, listed.length - 8), bugsNotStarted: notStarted.slice(0, 5).map((i) => `#${i.number} ${i.title}`) }
 }
 
 export function summarize(state: Json, url: string, now: number): Summary {
@@ -148,14 +150,14 @@ export function summarize(state: Json, url: string, now: number): Summary {
     repo: tracker?.repo ?? run?.repo,
     milestone: tracker?.milestone?.title ?? run?.milestone,
     stage: run?.status === 'running' ? run?.stage : undefined,
-    done: Number(board['Done'] ?? 0),
+    done: Object.entries(board).reduce((n, [k, v]) => n + (stageOf(k) === 'done' ? Number(v) : 0), 0),
     total,
     busy: rows.filter((r) => r.current && r.steps?.[r.current]?.status === 'running').length,
     decisions: (live.decisions ?? []).slice(0, 10).map((d: Json) => ({ id: String(d.id), title: String(d.title ?? ''), why: d.why, url: d.url })),
     build: rows.filter((r) => r.kind !== 'qa').map((r) => lane(r, BUILD_STEPS)),
     test: rows.filter((r) => r.kind === 'qa').map((r) => lane(r, TEST_STEPS)),
     worktrees,
-    github: githubNow(tracker),
+    github: githubNow(tracker, new Set((live.rows ?? []).map((r: Json) => Number(r.ticket)))),
   }
 }
 

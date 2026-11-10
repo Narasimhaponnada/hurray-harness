@@ -6,11 +6,29 @@ There are three levels. Each adds detail; use as many as suit your harness.
 
 | Level | What you do | What you get |
 |---|---|---|
-| 1. Nothing | Start the hub in your repo | GitHub milestone, board, epics, issues and PRs; every worktree and its path to a merge; decisions from labels and approval PRs |
-| 2. Tool hooks | Add the Claude Code or Cursor hook file | Live activity per ticket: edits, commands, subagents. Each one is tied to its ticket through the worktree it happened in |
-| 3. Harness events | Wrap steps with `hh step`, or post events | The full lane grid and swimlanes: steps, agents, skills, recodes, budgets and decisions |
+| 1. Nothing | Start the hub in your repo | A lane for every issue in flight, built from GitHub and git (below); the milestone, board, epics, issues and PRs; every worktree and its path to a merge; decisions from labels and approval PRs |
+| 2. Agent activity | The Claude Code plugin, or a hook file | On each lane: the agent, its skill, what it does now, and the recode loop |
+| 3. Harness events | Wrap steps with `hh step`, or post events | Your harness's own steps, models, token budgets, phases and swimlanes |
 
-## Level 2: tool hooks
+## Level 1: lanes from GitHub and git
+
+Every open issue that is in progress, in review, in QA or blocked on the board, or that has a worktree or an open PR, gets a row in the grid. Its cells come from what is already there:
+
+| Step | Comes from |
+|---|---|
+| Plan | Done once work started: a board status past to-do, a worktree, a PR or agent activity |
+| Code | Working until the PR is ready for review; working again (recode 2) when checks fail or changes are requested and an agent is back at it |
+| Tests, Check | The PR's checks: running, failed or done |
+| PR and gate | The PR: a draft is working, ready is done |
+| Review | Working once checks pass (or the board says review); failed on changes requested; done on approval |
+| Merge | Failed on a conflict; working when approved and green; done when merged |
+| Close or QA | Working after the merge while the issue is open (QA); done when the issue closes |
+
+A blocked issue (a label or a board column such as Blocked) shows amber where it stopped. Merged and closed issues stay for a day. A ticket your harness reports on with `hh step` keeps the harness's row instead.
+
+## Level 2: agent activity
+
+**Claude Code: install the plugin.** It sends the hub one line for each edit, command, skill and subagent: the tool, the file path or command line, the skill name, and which subagent acted. Never file contents, prompts or output. Each line lands on its ticket through the worktree of the file or folder it touched. Set `HH_REPORT=0` to turn it off. Without the plugin, use the hook file below instead.
 
 **Claude Code.** Merge [`integrations/claude-code/settings.json`](../integrations/claude-code/settings.json) into `.claude/settings.json` in the repo, or into `~/.claude/settings.json` for every repo. It forwards Bash commands, file edits, skills, subagent stops, notifications and stops.
 

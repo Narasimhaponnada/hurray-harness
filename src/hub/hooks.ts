@@ -18,9 +18,19 @@ export function hookToEvent(raw: unknown, sourceHint?: string): HHEvent | undefi
   const cwd: string | undefined = h.cwd ?? (Array.isArray(h.workspace_roots) ? h.workspace_roots[0] : undefined)
   const session: string | undefined = h.session_id ?? h.conversation_id
 
+  // Which agent acts, and which skill it runs. Claude Code names the subagent on its hooks
+  // (agent_type), on SubagentStart, and in the Task or Agent tool's subagent_type; a skill is the
+  // Skill tool's input.
+  const isSkill = /^skill$/i.test(tool ?? '')
+  const skill: string | undefined = isSkill ? short(input.skill ?? input.command ?? input.name, 80) : undefined
+  const spawned: string | undefined = /^(task|agent)$/i.test(tool ?? '') ? short(input.subagent_type, 60) : undefined
+  const role: string | undefined = short(h.agent_type ?? h.subagent_type, 60)
+
   let detail: string | undefined
   const lname = name.toLowerCase()
-  if (/subagent/.test(lname)) detail = (/stop/.test(lname) ? 'Subagent finished' : 'Subagent started') + (h.agent_type || h.subagent_type ? ': ' + (h.agent_type ?? h.subagent_type) : '')
+  if (skill) detail = 'Running skill ' + skill
+  else if (spawned) detail = 'Started agent ' + spawned + (input.description ? ': ' + short(input.description, 80) : '')
+  else if (/subagent/.test(lname)) detail = (/stop/.test(lname) ? 'Subagent finished' : 'Subagent started') + (h.agent_type || h.subagent_type ? ': ' + (h.agent_type ?? h.subagent_type) : '')
   else if (/^stop$|sessionend|session_end/.test(lname)) detail = 'Agent stopped'
   else if (/sessionstart|session_start/.test(lname)) detail = 'Session started'
   else if (/notification/.test(lname)) detail = 'Waiting for you: ' + (short(h.message, 100) ?? 'notification')
@@ -34,6 +44,8 @@ export function hookToEvent(raw: unknown, sourceHint?: string): HHEvent | undefi
     session: typeof session === 'string' ? session.slice(0, 120) : undefined,
     cwd: typeof cwd === 'string' ? cwd : undefined,
     files: typeof file === 'string' ? [file] : undefined,
+    agent: role ? { role } : undefined,
+    skill,
   }
 }
 

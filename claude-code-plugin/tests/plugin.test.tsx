@@ -1,5 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
+import DERIVED from './derived-state.ts'
 
 const RUN_LANES = { command: 'lanes', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
 
@@ -212,4 +213,54 @@ test('with no agent lanes, the pane shows the bugs and issues in flight on GitHu
   expect(await ui.find({ type: 'Text', text: /#53 Handle leak under cgroup v2/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /Product phases/ })).toBeFalsy()
   await ui.unmount()
+})
+
+test('lanes built from GitHub, git and hooks: the grid, the recode loop, the agent and its skill', async ($, on) => {
+  // A real hub snapshot: GitHub issues and PRs, three worktrees, Claude Code hooks, and no harness events.
+  mock.clock(on, { now: Date.parse(DERIVED.trackers[0]!.fetchedAt) + 60_000 })
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'lanes' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('http.fetch', () => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(DERIVED) } }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /recode 2/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /↳ feature-build/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Running cargo test -p wal replay_unclean/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /\(developer lane-1\)/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /2 in progress · 1 in review · 1 in QA · 1 blocked · 3 open bugs/ })).toBeTruthy()
+  // The tickets in the grid are not listed a second time under GitHub.
+  expect(await ui.find({ type: 'Text', text: /^\s*#5951\s*$/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('each skill, agent, edit and command is sent to the hub with the subagent type, never file contents', async ($, on) => {
+  const posted: Record<string, any>[] = []
+  mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'lanes' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('env.get', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('agent.list', () => ({ value: [{ id: 'a1', type: 'developer', description: '' }] }) as never)
+  on('http.fetch', (_, e) => {
+    if (e.init?.method === 'POST') { posted.push({ url: e.url, body: JSON.parse(e.init.body!) }); return { value: { status: 202, ok: true, headers: {}, text: '{}' } } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(STATE) } }
+  })
+  on('tool.call', () => ({ result: { ok: true } }) as never)
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Skill', skill: 'feature-build', agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Write', file_path: '/work/app/.wt/lane-1/a.rs', content: 'secret code', agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/work/app/README.md' } as never)
+  for (let i = 0; i < 20; i++) await Promise.resolve() // the reports are sent without holding up the tool
+  expect(posted.map((p) => p.url)).toEqual(['http://127.0.0.1:7311/api/hook/claude-code', 'http://127.0.0.1:7311/api/hook/claude-code'])
+  expect(posted[0]!.body).toMatchObject({ tool_name: 'Skill', agent_type: 'developer', cwd: '/work/app', tool_input: { skill: 'feature-build' } })
+  expect(posted[1]!.body.tool_input).toEqual({ file_path: '/work/app/.wt/lane-1/a.rs' })
+  expect(JSON.stringify(posted)).not.toContain('secret code')
 })

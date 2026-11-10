@@ -5,6 +5,7 @@ import { trackerDecisions } from './decisions.js'
 import { gitRemoteRepo, gitSnapshot, worktreeFor } from './git.js'
 import { EventStore } from './store.js'
 import type { TeamsNotifier } from './teams.js'
+import { deriveRows } from './derive.js'
 import type { TrackerAdapter } from './trackers/index.js'
 import { GitHubAdapter } from './trackers/github.js'
 
@@ -95,9 +96,13 @@ export class Hub {
   // Ties an event to a ticket and repo through the worktree it came from, when the sender did not say.
   enrich(e: HHEvent): HHEvent {
     if (e.ticket != null && e.repo) return e
-    const path = e.cwd ?? e.files?.[0]
-    if (!path) return e
-    const hit = worktreeFor(path, [...this.gitSnaps.values()])
+    // The file touched says more than the session's folder: a session started in the main clone
+    // often edits inside a lane's worktree. Take the first path that names a ticket's worktree.
+    const snaps = [...this.gitSnaps.values()]
+    const paths = [e.files?.[0], e.cwd].filter((p): p is string => !!p)
+    if (!paths.length) return e
+    const hits = paths.map((p) => worktreeFor(p, snaps)).filter((h): h is NonNullable<typeof h> => !!h)
+    const hit = hits.find((h) => h.wt.ticket != null) ?? hits[0]
     if (!hit) return e
     return {
       ...e,
@@ -137,7 +142,21 @@ export class Hub {
     const fromTracker = trackerDecisions(trackers, this.cfg.labels, this.cfg.approvalBranches)
     const seen = new Set(live.decisions.map((d) => d.id))
     const decisions: Decision[] = [...live.decisions, ...fromTracker.filter((d) => !seen.has(d.id))]
-    return { live: { ...live, decisions }, trackers, git: [...this.gitSnaps.values()] }
+    const git = [...this.gitSnaps.values()]
+    // Issues in flight that no harness reports on get a row built from the tracker, git and tool hooks.
+    const now = Date.now()
+    const reported = new Set(live.rows.map((r) => r.ticket))
+    const derived = deriveRows({ trackers, git, work: this.builder.ticketWork(), repoOfGit: (g) => this.repoOfPath.get(g.repoPath), now })
+      .filter((r) => !reported.has(r.ticket))
+    const rows = [...live.rows, ...derived]
+    // Agents seen through hooks on those rows: busy while they acted in the last 30 minutes.
+    const agents = [...live.agents]
+    for (const r of derived) {
+      const s = r.current ? r.steps[r.current] : undefined
+      if (!s?.agent || !s.startedAt) continue
+      agents.push({ key: `gh:${r.lane ?? '#' + r.ticket}:${s.agent.role}`, role: s.agent.role, status: 'busy', ticket: r.ticket, step: r.current, skill: s.skill, since: s.startedAt })
+    }
+    return { live: { ...live, decisions, rows, agents }, trackers, git }
   }
 
   subscribe(fn: Listener): () => void {

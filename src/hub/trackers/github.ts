@@ -46,7 +46,8 @@ const PULLS = `query($owner: String!, $name: String!) {
   }
 }
 fragment pr on PullRequest {
-  number title headRefName baseRefName isDraft mergeable url state
+  number title headRefName baseRefName isDraft mergeable url state reviewDecision mergedAt updatedAt
+  closingIssuesReferences(first: 3) { nodes { number } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
 }`
 
@@ -127,7 +128,10 @@ export function toChange(n: Json): ChangeRequest {
     number: n.number, title: n.title, head: n.headRefName, base: n.baseRefName,
     state: lower(n.state) === 'merged' ? 'merged' : lower(n.state) === 'closed' ? 'closed' : 'open', draft: !!n.isDraft,
     mergeable: m === 'mergeable' ? 'mergeable' : m === 'conflicting' ? 'conflicting' : 'unknown', checks, url: n.url,
-    ticket: ticketFromBranch(n.headRefName ?? ''),
+    ticket: ticketFromBranch(n.headRefName ?? '') ?? n.closingIssuesReferences?.nodes?.[0]?.number,
+    review: lower(n.reviewDecision) === 'approved' ? 'approved' : lower(n.reviewDecision) === 'changes_requested' ? 'changes' : n.reviewDecision ? 'required' : undefined,
+    mergedAt: n.mergedAt ?? undefined,
+    updatedAt: n.updatedAt ?? undefined,
   }
 }
 

@@ -83,6 +83,7 @@ export type RowKind = 'dev' | 'qa' | 'other'
 
 export interface TicketRow {
   key: string
+  derived?: boolean // built from the tracker and git, not reported by a harness
   run?: string
   repo?: string
   ticket: number
@@ -143,8 +144,23 @@ export interface ActivityItem {
   source: string
   session?: string
   ticket?: number
+  repo?: string
   tool?: string
   detail: string
+  agent?: string // the subagent acting, when the tool names it
+  skill?: string // set when this action invoked a skill
+}
+
+// What tool hooks saw on one ticket lately: the latest action, the agent, and the skill its session runs.
+export interface TicketWork {
+  repo?: string
+  ticket: number
+  since: string // start of the current stretch of work (a gap of 30 minutes starts a new one)
+  at: string // the latest action
+  detail: string
+  source: string // claude-code, cursor, ...
+  agent?: string
+  skill?: string
 }
 
 export interface AgentState {
@@ -209,6 +225,9 @@ export interface ChangeRequest {
   checks: 'success' | 'failure' | 'pending' | 'none'
   url: string
   ticket?: number
+  review?: 'approved' | 'changes' | 'required' // the PR's review decision
+  mergedAt?: string
+  updatedAt?: string
 }
 
 export interface TrackerSnapshot {

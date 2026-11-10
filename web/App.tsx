@@ -70,10 +70,13 @@ export function App() {
 
       <Decisions items={decisions} answered={snap.live.answered ?? []} />
 
-      <section className="section">
-        <header><h2>Product phases</h2><span className="hint">the skill running each phase; amber means it waits on you</span></header>
-        <Phases phases={snap.live.phases} decisions={decisions} />
-      </section>
+      {/* Only once a harness reports phases: a row of boxes all saying "not yet" tells you nothing. */}
+      {snap.live.phases.some((p) => p.status !== 'waiting') && (
+        <section className="section">
+          <header><h2>Product phases</h2><span className="hint">the skill running each phase; amber means it waits on you</span></header>
+          <Phases phases={snap.live.phases} decisions={decisions} />
+        </section>
+      )}
 
       <GitHubView trackers={snap.trackers} rows={snap.live.rows} />
 

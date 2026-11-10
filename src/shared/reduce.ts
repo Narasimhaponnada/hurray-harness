@@ -1,5 +1,5 @@
 import type {
-  ActivityItem, AgentState, Decision, HHEvent, LiveState, PhaseState, RowKind, RunState, Segment, StepState, TicketRow,
+  ActivityItem, AgentState, Decision, HHEvent, LiveState, PhaseState, RowKind, RunState, Segment, StepState, TicketRow, TicketWork,
 } from './types.js'
 
 export const DEV_STEPS = ['plan', 'code', 'tests', 'check', 'pr', 'review', 'merge', 'close'] as const
@@ -40,6 +40,9 @@ export class LiveBuilder {
   private rows = new Map<string, TicketRow>()
   private segments: Segment[] = []
   private decisions = new Map<string, Decision>()
+  private work = new Map<string, TicketWork>()
+  private sessionSkill = new Map<string, string>()
+  private sessionAgent = new Map<string, string>()
   private answered = new Map<string, Decision>()
   private phases = new Map<string, PhaseState>()
   private agents = new Map<string, AgentState>()
@@ -224,6 +227,11 @@ export class LiveBuilder {
     while (this.answered.size > 50) this.answered.delete(this.answered.keys().next().value!)
   }
 
+  // What tool hooks saw per ticket, for lanes built from the tracker and git.
+  ticketWork(): TicketWork[] {
+    return [...this.work.values()]
+  }
+
   // An open or answered decision, for the hub's lookups.
   decision(id: string): Decision | undefined {
     return this.decisions.get(id) ?? this.answered.get(id)
@@ -235,9 +243,22 @@ export class LiveBuilder {
 
   private act(e: HHEvent) {
     const detail = e.detail ?? e.tool ?? 'activity'
-    this.activity.push({ ts: e.ts, source: e.source, session: e.session, ticket: e.ticket, tool: e.tool, detail })
+    this.activity.push({ ts: e.ts, source: e.source, session: e.session, ticket: e.ticket, repo: e.repo, tool: e.tool, detail, agent: e.agent?.role, skill: e.skill })
     if (this.activity.length > MAX_ACTIVITY) this.activity.splice(0, this.activity.length - MAX_ACTIVITY)
+    // A skill or agent seen in a session stays that session's until another replaces it.
+    if (e.session && e.skill) this.sessionSkill.set(e.session, e.skill)
+    if (e.session && e.agent?.role) this.sessionAgent.set(e.session, e.agent.role)
+    if (/^(Agent stopped|Session started)$/.test(detail) && e.session) { this.sessionSkill.delete(e.session); this.sessionAgent.delete(e.session) }
     if (e.ticket == null) return
+    const key = (e.repo ?? '') + '#' + e.ticket
+    const prev = this.work.get(key)
+    const gap = prev ? Date.parse(e.ts) - Date.parse(prev.at) : Infinity
+    this.work.set(key, {
+      repo: e.repo, ticket: e.ticket, since: gap > 30 * 60_000 ? e.ts : prev!.since, at: e.ts, detail, source: e.source,
+      agent: e.agent?.role ?? (e.session ? this.sessionAgent.get(e.session) : undefined) ?? (gap > 30 * 60_000 ? undefined : prev?.agent),
+      skill: e.skill ?? (e.session ? this.sessionSkill.get(e.session) : undefined) ?? (gap > 30 * 60_000 ? undefined : prev?.skill),
+    })
+    if (this.work.size > 300) this.work.delete(this.work.keys().next().value!)
     // Attach "doing now" to the step that is running for this ticket.
     for (const row of this.rows.values()) {
       if (row.ticket !== e.ticket || (e.repo && row.repo && row.repo !== e.repo)) continue

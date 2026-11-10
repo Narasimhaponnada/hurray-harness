@@ -114,6 +114,7 @@ Answer `y` to add the marketplace, then choose the user scope so it's on in ever
 - **A status line,** always visible, for example `lanes · Build · 4 busy · 2 need you · 4/19 done`.
 - **An amber band above the prompt** whenever something needs you, with a toast when a new decision appears.
 - **A lanes pane beside the chat**, open from the start (or with `/lanes`), with the same Now and Flow views, the work in flight on GitHub, and buttons to pin a view or rotate.
+- **Agent activity on the lanes:** the plugin tells the hub which subagent acts, which skill it runs and what it does (the tool, file path or command line; never file contents), so you don't copy a hook file. `HH_REPORT=0` turns this off.
 - **A decision watcher** (`/hurray-harness:decision-watcher`) that asks you on your phone, through the Claude app, whenever the harness waits on you.
 
 <table>
@@ -137,9 +138,9 @@ There are three levels. Each adds detail; use as many as fit.
 
 | Level | What you do | What you get |
 |---|---|---|
-| **1. Nothing** | Start the hub in your repo | The GitHub view, worktrees and their path to a merge, decisions from labels and approval PRs |
-| **2. Tool hooks** | Copy [`integrations/claude-code/settings.json`](integrations/claude-code/settings.json) or [`integrations/cursor/hooks.json`](integrations/cursor/hooks.json) into your project | Live activity per ticket: edits, commands, subagents, each tied to its ticket through the worktree it happened in |
-| **3. Harness events** | Put `hh step` in front of the commands your harness runs, or post events | The full lane grid and swimlanes: steps, agents, models, skills, recodes, budgets and decisions |
+| **1. Nothing** | Start the hub in your repo | The lane grid for every issue in flight, built from GitHub and git: each issue's stage from its board status, worktree, PR, checks, review, conflicts, merge and close, with failures and blocks colored. Plus the GitHub view, worktrees and decisions from labels and approval PRs |
+| **2. Agent activity** | Install the Claude Code plugin (nothing to copy), or for Cursor add [`integrations/cursor/hooks.json`](integrations/cursor/hooks.json) | On each lane: the agent acting, the skill it runs, what it does right now, and the recode loop when checks fail and an agent goes back to the code |
+| **3. Harness events** | Put `hh step` in front of the commands your harness runs, or post events | Exact steps as your harness defines them, models, token budgets, product phases and swimlanes |
 
 ```bash
 # Report a step from any script: output and exit code pass through unchanged

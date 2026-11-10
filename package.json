@@ -1,6 +1,6 @@
 {
   "name": "hurray-harness",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Track every build. Lose fewer hairs. A live, tool-neutral view of AI agent lanes, tickets, worktrees and merges.",
   "keywords": [
     "ai-agents",

@@ -17,6 +17,8 @@ function gatedPhases(phases: PhaseState[], decisions: Decision[]): Set<string> {
 }
 
 export function Phases({ phases, decisions }: { phases: PhaseState[]; decisions: Decision[] }) {
+  // Only once a harness reports phases: a row of boxes all saying "not yet" tells you nothing.
+  if (!phases.some((p) => p.status !== 'waiting')) return null
   const gated = gatedPhases(phases, decisions)
   return (
     <div className="phases">

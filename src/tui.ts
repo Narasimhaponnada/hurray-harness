@@ -1,6 +1,6 @@
 import { DEV_STEPS, QA_STEPS, STEP_LABELS } from './shared/reduce.js'
 import type { Decision, PhaseState, Snapshot, StepState, TicketRow } from './shared/types.js'
-import { STAGE_WORD, workInFlight, type Stage, type WorkRow } from './shared/work.js'
+import { STAGE_WORD, doneOf, workInFlight, type Stage, type WorkRow } from './shared/work.js'
 
 // The terminal view (hh watch): the same phases strip and ticket grid as the dashboard, drawn with ANSI
 // colors. render() is pure: snapshot and width in, lines out.
@@ -81,7 +81,7 @@ export function render(snap: Snapshot, width: number, s: Style = { color: true }
   // Header
   const board = tracker?.board ?? {}
   const total = Object.values(board).reduce((a, b) => a + b, 0)
-  const done = board['Done'] ?? 0
+  const done = doneOf(board)
   const head = [tracker?.repo ?? run?.repo, (tracker?.milestone?.title ?? run?.milestone) ? 'milestone ' + (tracker?.milestone?.title ?? run?.milestone) : '', run?.status === 'running' ? run.stage : ''].filter(Boolean).join(' · ')
   const barW = 20
   const fill = total ? Math.round((done / total) * barW) : 0
@@ -122,6 +122,9 @@ function githubNow(snap: Snapshot, W: number, s: Style): string[] {
   for (const t of snap.trackers) {
     if (t.error && !t.items.length) { out.push(bold(s, 'Now on GitHub ') + dim(s, '· could not read: ' + t.error), ''); continue }
     const w = workInFlight(t)
+    // Tickets already in the grid above are not listed again; the counts still cover them all.
+    const inGrid = new Set(snap.live.rows.filter((r) => !r.repo || r.repo === t.repo).map((r) => r.ticket))
+    const listed = w.rows.filter((r) => !inGrid.has(r.number))
     const parts = [
       w.counts.working && `${w.counts.working} in progress`, w.counts.review && `${w.counts.review} in review`,
       w.counts.qa && `${w.counts.qa} in QA`, w.counts.blocked && `${w.counts.blocked} blocked`,
@@ -129,12 +132,12 @@ function githubNow(snap: Snapshot, W: number, s: Style): string[] {
     ].filter(Boolean).join(' · ')
     out.push(bold(s, 'Now on GitHub') + dim(s, fit(` · ${snap.trackers.length > 1 ? t.repo + ' · ' : ''}${parts}`, Math.max(0, W - 13), 'left').trimEnd()))
     if (!w.rows.length) out.push(dim(s, '  Nothing in progress, in review, in QA or blocked.'))
-    const shown = w.rows.slice(0, 8)
+    const shown = listed.slice(0, 8)
     // One column for the PR and who has it, as wide as the widest row needs, so the rows line up.
     const widest = Math.max(0, ...shown.map((r) => right(r, s).len))
     const rightW = W - 25 - widest - 2 >= 24 ? widest : 0 // a full column only when titles keep 24 characters
     for (const r of shown) out.push(workLine(r, W, s, rightW))
-    if (w.rows.length > shown.length) out.push(dim(s, `  +${w.rows.length - shown.length} more on the dashboard`))
+    if (listed.length > shown.length) out.push(dim(s, `  +${listed.length - shown.length} more on the dashboard`))
     if (w.bugsNotStarted.length) {
       const list = w.bugsNotStarted.map((b) => `#${b.number} ${b.title}`).join(' · ')
       out.push(fg(s, 203, '  Bugs not started: ') + dim(s, fit(list, Math.max(0, W - 20), 'left').trimEnd()))
@@ -234,7 +237,8 @@ function nowView(snap: Snapshot, W: number, s: Style, now: number): string[] {
         const pct = t?.used && t?.budget ? Math.round((t.used / t.budget) * 100) : undefined
         const n = pct == null ? 0 : Math.round(Math.min(pct, 100) / 20)
         const meter = pct == null ? '' : fg(s, pct >= 80 ? 214 : 75, '█'.repeat(n) + '░'.repeat(5 - n)) + dim(s, ` ${kTok(t!.used!)}/${kTok(t!.budget!)} · `)
-        const lead = dim(s, '↳ ' + [cur.skill, cur.agent?.model, cur.startedAt ? since(cur.startedAt, now) : ''].filter(Boolean).join(' · ') + ' · ')
+        const bits = [cur.skill, cur.agent?.model, cur.startedAt ? since(cur.startedAt, now) : ''].filter(Boolean)
+        const lead = dim(s, '↳ ' + (bits.length ? bits.join(' · ') + ' · ' : ''))
         const room = W - labelW - 1 - visible(lead) - visible(meter)
         out.push(' '.repeat(labelW) + ' ' + lead + meter + dim(s, fit(cur.detail ?? '', Math.max(0, room), 'left').trimEnd()))
       } else {
